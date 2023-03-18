@@ -4,3 +4,6 @@ module "vpc" {
   tag = var.tag
 }
 
+#module "eks-cluster" {
+#  source = "./modules/eks"
+#}
