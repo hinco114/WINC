@@ -1,5 +1,7 @@
 resource "aws_vpc" "main_vpc" {
   cidr_block = var.ipv4_cidr_block
+  enable_dns_hostnames = true
+  enable_dns_support = true
   tags       = {
     Name = "${var.tag}-vpc"
   }
@@ -44,3 +46,5 @@ resource "aws_route_table_association" "route_table_association" {
   route_table_id = aws_route_table.route_table.id
   subnet_id = aws_subnet.public_subnet[count.index].id
 }
+
+// Todo: NAT Gateway
