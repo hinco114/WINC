@@ -3,6 +3,7 @@
 
 # env
 .env
+.envrc
 
 # terraform
 .terraform.lock*
