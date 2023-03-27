@@ -2,42 +2,59 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 namespace: argocd
-resources:
-  - https://raw.githubusercontent.com/argoproj/argo-cd/v2.6.6/manifests/install.yaml
 
-# Web Terminal 활성화 ( https://argo-cd.readthedocs.io/en/stable/operator-manual/web_based_terminal/ )
-patches:
-  # Web Terminal 위한 config 추가
-  - target:
-      kind: ConfigMap
-      name: argocd-cm
-    patch: |-
-      - op: add
-        path: /data
-        value:
-          exec.enabled: "true"
-  # Web Terminal 위한 Role 추가
-  - target:
-      kind: ClusterRole
-      name: argocd-server
-    patch: |-
-      - op: add
-        path: /rules/-
-        value:
-          apiGroups:
-          - ""
-          resources:
-            - pods/exec
-          verbs:
-            - create
-  # Service NodePort 화 및 30000 으로 노출
-  - target:
-      kind: Service
-      name: argocd-server
-    patch: |-
-      - op: add
-        path: /spec/ports/0/nodePort
-        value: 30000
-      - op: add
-        path: /spec/type
-        value: NodePort
+helmCharts:
+  - name: argo-cd
+    repo: https://argoproj.github.io/argo-helm
+    version: 5.27.3
+    releaseName: argo
+    namespace: argocd
+    valuesFile: values.yaml
+
+secretGenerator:
+  - name: github-secret
+    envs:
+      - ./.env
+    type: Opaque
+
+replacements:
+  - source:
+      kind: Secret
+      name: github-secret
+      fieldPath: data.privateGithubClientID
+    targets:
+      - select:
+          kind: Secret
+          name: argocd-secret
+        fieldPaths:
+          - data.privateGithubClientId
+  - source:
+      kind: Secret
+      name: github-secret
+      fieldPath: data.privateGithubClientSecret
+    targets:
+      - select:
+          kind: Secret
+          name: argocd-secret
+        fieldPaths:
+          - data.privateGithubClientSecret
+  - source:
+      kind: Secret
+      name: github-secret
+      fieldPath: data.orgGithubClientId
+    targets:
+      - select:
+          kind: Secret
+          name: argocd-secret
+        fieldPaths:
+          - data.orgGithubClientId
+  - source:
+      kind: Secret
+      name: github-secret
+      fieldPath: data.orgGithubClientSecret
+    targets:
+      - select:
+          kind: Secret
+          name: argocd-secret
+        fieldPaths:
+          - data.orgGithubClientSecret
