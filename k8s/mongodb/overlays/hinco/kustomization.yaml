@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Make mongo_secret.env from example file
+secretGenerator:
+  - name: mongodb-secret
+    envs:
+      - ./mongo_secret.env
