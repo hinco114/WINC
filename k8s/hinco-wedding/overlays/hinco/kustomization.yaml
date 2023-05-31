@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+nameSuffix: -hinco
+
+patches:
+  - target:
+      kind: Service
+      name: hinco-wedding-frontend
+    patch: |-
+      - op: replace
+        path: /spec/ports/0/nodePort
+        value: 30081
+
+images:
+  - name: gcr.io/hinco-wedding/hinco-wedding
+    newTag: hinco-v1.0.0
+
