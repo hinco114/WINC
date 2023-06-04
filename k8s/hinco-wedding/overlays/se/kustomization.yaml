@@ -7,6 +7,6 @@ resources:
 nameSuffix: -se
 
 images:
-  - name: gcr.io/hinco-wedding/hinco-wedding
+  - name: ghcr.io/hinco114/hinco-wedding
     newTag: v1.0.0
 

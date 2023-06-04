@@ -6,6 +6,10 @@ resources:
 
 nameSuffix: -hinco
 
+labels:
+  - pairs:
+      app: hinco-wedding-frontend-hinco
+
 patches:
   - target:
       kind: Service
@@ -14,8 +18,21 @@ patches:
       - op: replace
         path: /spec/ports/0/nodePort
         value: 30081
+      - op: replace
+        path: /spec/selector/app
+        value: hinco-wedding-frontend-hinco
+  - target:
+      kind: Deployment
+      name: hinco-wedding-frontend
+    patch: |-
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: hinco-wedding-frontend-hinco
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: hinco-wedding-frontend-hinco
 
 images:
-  - name: gcr.io/hinco-wedding/hinco-wedding
-    newTag: hinco-v1.0.0
+  - name: ghcr.io/hinco114/hinco-wedding
+    newTag: hinco-v2.0.0
 
