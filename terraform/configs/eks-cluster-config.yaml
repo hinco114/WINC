@@ -5,16 +5,44 @@ metadata:
   name: basic-cluster
   region: ap-northeast-2
 
-nodeGroups:
+vpc:
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+  subnets:
+    private:
+      ap-northeast-2a:
+        id: subnet-0db1aec6fac2211ea
+      ap-northeast-2b:
+        id: subnet-071e14cb881446bd5
+      ap-northeast-2c:
+        id: subnet-0c400ab7342b99491
+      ap-northeast-2d:
+        id: subnet-0197b752facd42ab9
+    public:
+      ap-northeast-2a:
+        id: subnet-06b180df9966b8ae4
+      ap-northeast-2b:
+        id: subnet-025c6b81508a72f7d
+      ap-northeast-2c:
+        id: subnet-03227e06e7683a6bd
+      ap-northeast-2d:
+        id: subnet-016f5cd0c352a50b4
+
+managedNodeGroups:
   - name: ng-1
-    instanceType: t3.medium
-    desiredCapacity: 2
+    instanceSelector:
+      vCPUs: 2
+      memory: "4" # 4 GiB, unit defaults to GiB
+    spot: true
+    desiredCapacity: 1
     volumeSize: 80
     ssh:
       allow: true # will use ~/.ssh/id_rsa.pub as the default ssh key
-#  - name: ng-2
-#    instanceType: m5.xlarge
-#    desiredCapacity: 2
-#    volumeSize: 100
-#    ssh:
-#      publicKeyPath: ~/.ssh/ec2_id_rsa.pub
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+    privateNetworking: true
+    subnets:
+      - subnet-06b180df9966b8ae4
+      - subnet-016f5cd0c352a50b4
