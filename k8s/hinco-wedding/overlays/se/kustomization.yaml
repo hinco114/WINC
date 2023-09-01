@@ -8,5 +8,5 @@ nameSuffix: -se
 
 images:
   - name: ghcr.io/hinco114/hinco-wedding
-    newTag: v1.0.0
+    newTag: fake
 
