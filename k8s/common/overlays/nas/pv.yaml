@@ -8,7 +8,7 @@ spec:
   capacity:
     storage: 10Gi
   nfs:
-    server: {IP_ADDRESS_OF_NFS_SERVER}
-    path: {PATH_TO_MONGODB_DATA}
+    server: {AUTO_ADDED_BY_KUSTOMIZE}
+    path: {AUTO_ADDED_BY_KUSTOMIZE}
     readOnly: false
   storageClassName: nas-nfs

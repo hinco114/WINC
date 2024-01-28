@@ -20,7 +20,7 @@ patches:
         value: nas-nfs
 
 
-# Apply nfs config to storageclass and pv using replacements
+# Apply 'nfs-config' to StorageClass and PV using replacements patch
 replacements:
   - source:
       kind: ConfigMap
