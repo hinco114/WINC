@@ -1,9 +1,9 @@
 resource "aws_vpc" "main_vpc" {
-  cidr_block = var.ipv4_cidr_block
+  cidr_block           = var.ipv4_cidr_block
   enable_dns_hostnames = true
-  enable_dns_support = true
-  tags       = {
-    Name = "${var.tag}-vpc"
+  enable_dns_support   = true
+  tags                 = {
+    Name = "${var.tag_prefix}-vpc"
   }
 }
 
@@ -13,7 +13,7 @@ resource "aws_subnet" "private_subnet" {
   cidr_block        = cidrsubnet(var.ipv4_cidr_block, 8, count.index)
   availability_zone = data.aws_availability_zones.available.names[count.index]
   tags              = {
-    Name = "${var.tag}-private-subnet-az${(count.index + 1)}"
+    Name = "${var.tag_prefix}-private-subnet-az${(count.index + 1)}"
   }
 }
 
@@ -24,7 +24,7 @@ resource "aws_subnet" "public_subnet" {
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
   tags                    = {
-    Name = "${var.tag}-public-subnet-az${(count.index + 1)}"
+    Name = "${var.tag_prefix}-public-subnet-az${(count.index + 1)}"
   }
 }
 
@@ -44,7 +44,7 @@ resource "aws_route_table" "route_table" {
 resource "aws_route_table_association" "route_table_association" {
   count          = length(data.aws_availability_zones.available.names)
   route_table_id = aws_route_table.route_table.id
-  subnet_id = aws_subnet.public_subnet[count.index].id
+  subnet_id      = aws_subnet.public_subnet[count.index].id
 }
 
 // Todo: NAT Gateway

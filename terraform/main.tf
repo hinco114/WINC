@@ -1,7 +1,13 @@
 module "vpc" {
   source = "./modules/vpc"
 
-  tag = var.tag
+  tag_prefix = var.tag_prefix
+}
+
+module "ec2" {
+  source = "./modules/ec2"
+
+  tag_prefix = var.tag_prefix
 }
 
 #module "eks-cluster" {
