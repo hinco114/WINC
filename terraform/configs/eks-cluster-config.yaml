@@ -1,48 +1,48 @@
+# Reference : https://github.com/eksctl-io/eksctl/tree/main/examples
+
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 
 metadata:
-  name: basic-cluster
+  name: WINC-cluster
   region: ap-northeast-2
+  tags:
+    karpenter.sh/discovery: WINC-cluster
+
+iam:
+  withOIDC: true # required (for Karpenter)
+karpenter:
+  version: 'v0.20.0' # Exact version must be specified
 
 vpc:
+  cidr: 10.10.0.0/16
   clusterEndpoints:
     publicAccess: true
     privateAccess: true
-  subnets:
-    private:
-      ap-northeast-2a:
-        id: subnet-0db1aec6fac2211ea
-      ap-northeast-2b:
-        id: subnet-071e14cb881446bd5
-      ap-northeast-2c:
-        id: subnet-0c400ab7342b99491
-      ap-northeast-2d:
-        id: subnet-0197b752facd42ab9
-    public:
-      ap-northeast-2a:
-        id: subnet-06b180df9966b8ae4
-      ap-northeast-2b:
-        id: subnet-025c6b81508a72f7d
-      ap-northeast-2c:
-        id: subnet-03227e06e7683a6bd
-      ap-northeast-2d:
-        id: subnet-016f5cd0c352a50b4
+  nat:
+    gateway: Single # other options: Disable, Single (default)
+
+cloudWatch:
+  clusterLogging:
+    # enable specific types of cluster control plane logs
+    enableTypes: ["audit", "authenticator", "controllerManager"]
+    # all supported types: "api", "audit", "authenticator", "controllerManager", "scheduler"
+    # supported special values: "*" and "all"
+
+    # Sets the number of days to retain the logs for (see [CloudWatch docs](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutRetentionPolicy.html#API_PutRetentionPolicy_RequestSyntax)).
+    # By default, log data is stored in CloudWatch Logs indefinitely.
+    logRetentionInDays: 60
 
 managedNodeGroups:
-  - name: ng-1
+  - name: managed-ng-1
     instanceSelector:
       vCPUs: 2
       memory: "4" # 4 GiB, unit defaults to GiB
     spot: true
+    minSize: 1
+    maxSize: 2
     desiredCapacity: 1
     volumeSize: 80
     ssh:
       allow: true # will use ~/.ssh/id_rsa.pub as the default ssh key
-    iam:
-      withAddonPolicies:
-        autoScaler: true
     privateNetworking: true
-    subnets:
-      - subnet-06b180df9966b8ae4
-      - subnet-016f5cd0c352a50b4
