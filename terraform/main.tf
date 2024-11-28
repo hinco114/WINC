@@ -1,15 +1,23 @@
-module "vpc" {
-  source = "./modules/vpc"
-
-  tag_prefix = var.tag_prefix
+module "eks-cluster" {
+  source = "../terraform-modules/eks"
 }
 
-# module "ec2" {
-#   source = "./modules/ec2"
-#
-#   tag_prefix = var.tag_prefix
-# }
+module "argocd" {
+  source = "../terraform-modules/eks-plugins/argocd"
+  depends_on = [ module.eks-cluster ]
 
-#module "eks-cluster" {
-#  source = "./modules/eks"
-#}
+  argocd-config-path = "./configs/argocd-values.yaml"
+
+  privateGithubClientId = var.privateGithubClientId
+  privateGithubClientSecret = var.privateGithubClientSecret
+  orgGithubClientId = var.orgGithubClientId
+  orgGithubClientSecret = var.orgGithubClientSecret
+
+}
+
+module "secrets-store" {
+  source = "../terraform-modules/eks-plugins/secretstore"
+  depends_on = [ module.eks-cluster ]
+
+  secrets-store-config-path = "./configs/secretstore-values.yaml"
+}

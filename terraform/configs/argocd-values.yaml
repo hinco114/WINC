@@ -1,0 +1,29 @@
+server:
+  service:
+    type: NodePort
+    nodePortHttp: 30080 # default 30080
+configs:
+  cm:
+    url: https://argocd.hinco.dev
+    admin.enabled: false
+    exec.enabled: true
+    dex.config: |
+      connectors:
+        - type: github
+          id: private-github
+          name: private-GitHub
+          config:
+            clientID: $github-secret:privateGithubClientId
+            clientSecret: $github-secret:privateGithubClientSecret
+        - type: github
+          id: org-github
+          name: org-GitHub
+          config:
+            clientID: $github-secret:orgGithubClientId
+            clientSecret: $github-secret:orgGithubClientSecret
+          orgs:
+          - name: $github-secret:orgName
+  rbac:
+    "policy.csv": |
+      p, role:admin, exec, create, */*, allow
+      g, hinco114, role:admin

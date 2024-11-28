@@ -6,18 +6,15 @@
 nameOverride: argocd
 # -- String to fully override `"argo-cd.fullname"`
 fullnameOverride: ""
+# -- Override the namespace
+# @default -- `.Release.Namespace`
+namespaceOverride: ""
 # -- Override the Kubernetes version, which is used to evaluate certain manifests
 kubeVersionOverride: ""
 # Override APIVersions
 # If you want to template helm charts but cannot access k8s API server
 # you can set api versions here
-apiVersionOverrides:
-  # -- String to override apiVersion of cert-manager resources rendered by this helm chart
-  certmanager: "" # cert-manager.io/v1
-  # -- String to override apiVersion of GKE resources rendered by this helm chart
-  cloudgoogle: "" # cloud.google.com/v1
-  # -- String to override apiVersion of autoscaling rendered by this helm chart
-  autoscaling: "" # autoscaling/v2
+apiVersionOverrides: {}
 
 # -- Create aggregated roles that extend existing cluster roles to interact with argo-cd resources
 ## Ref: https://kubernetes.io/docs/reference/access-authn-authz/rbac/#aggregated-clusterroles
@@ -38,12 +35,21 @@ crds:
   keep: true
   # -- Annotations to be added to all CRDs
   annotations: {}
+  # -- Addtional labels to be added to all CRDs
+  additionalLabels: {}
 
 ## Globally shared configuration
 global:
+  # -- Default domain used by all components
+  ## Used for ingresses, certificates, SSO, notifications, etc.
+  domain: argocd.example.com
+
+  # -- Runtime class name for all components
+  runtimeClassName: ""
+
   # -- Common labels for the all resources
   additionalLabels: {}
-  # app: argo-cd
+    # app: argo-cd
 
   # -- Number of old deployment ReplicaSets to retain. The rest will be garbage collected.
   revisionHistoryLimit: 3
@@ -79,6 +85,9 @@ global:
   # -- Labels for the all deployed pods
   podLabels: {}
 
+  # -- Add Prometheus scrape annotations to all metrics services. This can be used as an alternative to the ServiceMonitors.
+  addPrometheusAnnotations: false
+
   # -- Toggle and define pod-level security context.
   # @default -- `{}` (See [values.yaml])
   securityContext: {}
@@ -91,6 +100,13 @@ global:
   # - ip: 10.20.30.40
   #   hostnames:
   #   - git.myhostname
+
+  # Configure dual-stack used by all component services
+  dualStack:
+    # -- IP family policy to configure dual-stack see [Configure dual-stack](https://kubernetes.io/docs/concepts/services-networking/dual-stack/#services)
+    ipFamilyPolicy: ""
+    # -- IP families that should be supported and the order in which they should be applied to ClusterIP as well. Can be IPv4 and/or IPv6.
+    ipFamilies: []
 
   # Default network policy rules used by all components
   networkPolicy:
@@ -106,7 +122,7 @@ global:
   nodeSelector: {}
 
   # -- Default tolerations for all components
-  tolerations: {}
+  tolerations: []
 
   # Default affinity preset for all components
   affinity:
@@ -122,7 +138,7 @@ global:
         #   operator: In
         #   values:
         #    - antarctica-east1
-      #    - antarctica-west1
+        #    - antarctica-west1
 
   # -- Default [TopologySpreadConstraints] rules for all components
   ## Ref: https://kubernetes.io/docs/concepts/workloads/pods/pod-topology-spread-constraints/
@@ -130,8 +146,20 @@ global:
   topologySpreadConstraints: []
     # - maxSkew: 1
     #   topologyKey: topology.kubernetes.io/zone
-  #   whenUnsatisfiable: DoNotSchedule
+    #   whenUnsatisfiable: DoNotSchedule
 
+  # -- Deployment strategy for the all deployed Deployments
+  deploymentStrategy: {}
+    # type: RollingUpdate
+    # rollingUpdate:
+    #   maxSurge: 25%
+    #   maxUnavailable: 25%
+
+  # -- Environment variables to pass to all deployed Deployments
+  env: []
+
+  # -- Annotations for the all deployed Certificates
+  certificateAnnotations: {}
 
 ## Argo Configs
 configs:
@@ -144,11 +172,7 @@ configs:
     # -- Annotations to be added to argocd-cm configmap
     annotations: {}
 
-    # -- Argo CD's externally facing base URL (optional). Required when configuring SSO
-    url: ""
-
     # -- The name of tracking label used by Argo CD for resource pruning
-    # @default -- Defaults to app.kubernetes.io/instance
     application.instanceLabelKey: argocd.argoproj.io/instance
 
     # -- Enable logs RBAC enforcement
@@ -168,6 +192,10 @@ configs:
 
     # -- Timeout to refresh application data as well as target manifests cache
     timeout.hard.reconciliation: 0s
+
+    # -- Enable Status Badge
+    ## Ref: https://argo-cd.readthedocs.io/en/stable/user-guide/status-badge/
+    statusbadge.enabled: false
 
     # Dex configuration
     # dex.config: |
@@ -200,9 +228,32 @@ configs:
     #     - profile
     #     - email
 
+    # Extension Configuration
+    ## Ref: https://argo-cd.readthedocs.io/en/latest/developer-guide/extensions/proxy-extensions/
+    # extension.config: |
+    #   extensions:
+    #   - name: httpbin
+    #     backend:
+    #       connectionTimeout: 2s
+    #       keepAlive: 15s
+    #       idleConnectionTimeout: 60s
+    #       maxIdleConnections: 30
+    #       services:
+    #       - url: http://httpbin.org
+    #         headers:
+    #         - name: some-header
+    #           value: '$some.argocd.secret.key'
+    #         cluster:
+    #           name: some-cluster
+    #           server: https://some-cluster
+
   # Argo CD configuration parameters
   ## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cmd-params-cm.yaml
   params:
+    # -- Create the argocd-cmd-params-cm configmap
+    # If false, it is expected the configmap will be created by something else.
+    create: true
+
     # -- Annotations to be added to the argocd-cmd-params-cm ConfigMap
     annotations: {}
 
@@ -222,6 +273,7 @@ configs:
 
     ## Server properties
     # -- Run server without TLS
+    ## NOTE: This value should be set when you generate params by other means as it changes ports used by ingress template.
     server.insecure: false
     # -- Value for base href in index.html. Used if Argo CD is running behind reverse proxy under subpath different from /
     server.basehref: /
@@ -232,7 +284,9 @@ configs:
     # -- Disable Argo CD RBAC for user authentication
     server.disable.auth: false
     # -- Enable GZIP compression
-    server.enable.gzip: false
+    server.enable.gzip: true
+    # -- Enable proxy extension feature. (proxy extension is in Alpha phase)
+    server.enable.proxy.extension: false
     # -- Set X-Frame-Options header in HTTP responses to value. To disable, set to "".
     server.x.frame.options: sameorigin
 
@@ -245,6 +299,22 @@ configs:
     applicationsetcontroller.policy: sync
     # -- Enables use of the Progressive Syncs capability
     applicationsetcontroller.enable.progressive.syncs: false
+    # -- A list of glob patterns specifying where to look for ApplicationSet resources. (e.g. `"argocd,argocd-appsets-*"`)
+    # @default -- `""` (default is only the ns where the controller is installed)
+    ## For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Appset-Any-Namespace/
+    applicationsetcontroller.namespaces: ""
+
+    # -- Enables [Applications in any namespace]
+    ## List of additional namespaces where applications may be created in and reconciled from.
+    ## The namespace where Argo CD is installed to will always be allowed.
+    ## Set comma-separated list. (e.g. app-team-one, app-team-two)
+    application.namespaces: ""
+
+    # -- JQ Path expression timeout
+    ## By default, the evaluation of a JQPathExpression is limited to one second.
+    ## If you encounter a "JQ patch execution timed out" error message due to a complex JQPathExpression
+    ## that requires more time to evaluate, you can extend the timeout period.
+    controller.ignore.normalizer.jq.timeout: "1s"
 
   # Argo CD RBAC policy configuration
   ## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/rbac.md
@@ -268,7 +338,7 @@ configs:
     #  p, subject, resource, action, object, effect
     # Role definitions and bindings are in the form:
     #  g, subject, inherited-subject
-    # policy.csv |
+    # policy.csv: |
     #   p, role:org-admin, applications, *, */*, allow
     #   p, role:org-admin, clusters, get, *, allow
     #   p, role:org-admin, repositories, *, *, allow
@@ -279,6 +349,9 @@ configs:
     # -- OIDC scopes to examine during rbac enforcement (in addition to `sub` scope).
     # The scope value can be a string, or a list of strings.
     scopes: "[groups]"
+
+    # -- Matcher function for Casbin, `glob` for glob matcher and `regex` for regex matcher.
+    policy.matchMode: "glob"
 
   # GnuPG public keys for commit verification
   ## Ref: https://argo-cd.readthedocs.io/en/stable/user-guide/gpg-verification/
@@ -293,7 +366,7 @@ configs:
       # 4AEE18F83AFDEB23: |
       #   -----BEGIN PGP PUBLIC KEY BLOCK-----
       #   ...
-    #   -----END PGP PUBLIC KEY BLOCK-----
+      #   -----END PGP PUBLIC KEY BLOCK-----
 
   # SSH known hosts for Git repositories
   ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#ssh-known-host-public-keys
@@ -304,10 +377,15 @@ configs:
     # -- Known hosts to be added to the known host list by default.
     # @default -- See [values.yaml]
     knownHosts: |
-      bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAubiN81eDcafrgMeLzaFPsw2kNvEcqTKl/VqLat/MaB33pZy0y3rJZtnqwR2qOOvbwKZYKiEO1O6VqNEBxKvJJelCq0dTXWT5pbO2gDXC6h6QDXCaHo6pOHGPUy+YBaGQRGuSusMEASYiWunYN0vCAI8QaXnWMXNMdFP3jHAJH0eDsoiGnLPBlBp4TNm6rYI74nMzgz3B9IikW4WVK+dc8KZJZWYjAuORU3jc1c/NPskD2ASinf8v3xnfXeukU0sJ5N6m5E8VLjObPEO+mN2t/FZTMZLiFqPWc/ALSqnMnnhwrNi2rbfg/rd/IpL8Le3pSBne8+seeFVBoGqzHM9yXw==
+      [ssh.github.com]:443 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+      [ssh.github.com]:443 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+      [ssh.github.com]:443 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+      bitbucket.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPIQmuzMBuKdWeF4+a2sjSSpBK0iqitSQ+5BM9KhpexuGt20JpTVM7u5BDZngncgrqDMbWdxMWWOGtZ9UgbqgZE=
+      bitbucket.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIazEu89wgQZ4bqs3d63QSMzYVa0MuJ2e2gKTKqu+UUO
+      bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQeJzhupRu0u0cdegZIa8e86EG2qOCsIsD1Xw0xSeiPDlCr7kq97NLmMbpKTX6Esc30NuoqEEHCuc7yWtwp8dI76EEEB1VqY9QJq6vk+aySyboD5QF61I/1WeTwu+deCbgKMGbUijeXhtfbxSxm6JwGrXrhBdofTsbKRUsrN1WoNgUa8uqN1Vx6WAJw1JHPhglEGGHea6QICwJOAr/6mrui/oB7pkaWKHj3z7d1IC4KWLtY47elvjbaTlkN04Kc/5LFEirorGYVbt15kAUlqGM65pk6ZBxtaO3+30LVlORZkxOh+LKL/BvbZ/iRNhItLqNyieoQj/uh/7Iv4uyH/cV/0b4WDSd3DptigWq84lJubb9t/DnZlrJazxyDCulTmKdOR7vs9gMTo+uoIrPSb8ScTtvw65+odKAlBj59dhnVp9zd7QUojOpXlL62Aw56U4oO+FALuevvMjiWeavKhJqlR7i5n9srYcrNV7ttmDw7kf/97P5zauIhxcjX+xHv4M=
       github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
       github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
-      github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==
+      github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
       gitlab.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBFSMqzJeV9rUzU4kWitGjeR4PWSa29SPqJ1fVkhtj3Hw9xjLVXVYrU9QlYWrOLXBpQ6KWjbjTDTdDkoohFzgbEY=
       gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf
       gitlab.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCsj2bNKTBSpIYDEGk9KxsGh3mySTRgMtXL583qmBpzeQ+jqCMRgBqB98u3z++J1sKlXHWfM9dyhSevkMwSbhoR8XIq/U0tCNyokEi/ueaBMCvbcTHhO7FcwzY92WK4Yt0aGROY5qX2UKSeOvuP4D6TPqKF1onrSzH9bx9XUf2lEdWT/ia1NEKjunUqu1xOB/StKDHMoX4/OKyIzuS0q/T1zOATthvasJFoPrAjkohTyaDUz2LN5JoH839hViyEG82yB+MjcFV5MU3N1l1QL3cVUCh93xSaua1N85qivl+siMkPGbO5xR/En4iEY6K2XPASUEMaieWVNTRCtJ4S8H+9
@@ -329,7 +407,7 @@ configs:
       # server.example.com: |
       #   -----BEGIN CERTIFICATE-----
       #   ...
-    #   -----END CERTIFICATE-----
+      #   -----END CERTIFICATE-----
 
   # ConfigMap for Config Management Plugins
   # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/
@@ -372,17 +450,17 @@ configs:
       #     fileName: "./subdir/s*.yaml"
       #     find:
       #       glob: "**/Chart.yaml"
-    #       command: [sh, -c, find . -name env.yaml]
+      #       command: [sh, -c, find . -name env.yaml]
 
   # -- Provide one or multiple [external cluster credentials]
-  # @default -- `[]` (See [values.yaml])
+  # @default -- `{}` (See [values.yaml])
   ## Ref:
   ## - https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#clusters
   ## - https://argo-cd.readthedocs.io/en/stable/operator-manual/security/#external-cluster-credentials
   ## - https://argo-cd.readthedocs.io/en/stable/user-guide/projects/#project-scoped-repositories-and-clusters
-  clusterCredentials: []
-    # - name: mycluster
-    #   server: https://mycluster.com
+  clusterCredentials: {}
+    # mycluster:
+    #   server: https://mycluster.example.com
     #   labels: {}
     #   annotations: {}
     #   config:
@@ -390,8 +468,8 @@ configs:
     #     tlsClientConfig:
     #       insecure: false
     #       caData: "<base64 encoded certificate>"
-    # - name: mycluster2
-    #   server: https://mycluster2.com
+    # mycluster2:
+    #   server: https://mycluster2.example.com
     #   labels: {}
     #   annotations: {}
     #   namespaces: namespace1,namespace2
@@ -401,8 +479,8 @@ configs:
     #     tlsClientConfig:
     #       insecure: false
     #       caData: "<base64 encoded certificate>"
-    # - name: mycluster3-project-scoped
-    #   server: https://mycluster3.com
+    # mycluster3-project-scoped:
+    #   server: https://mycluster3.example.com
     #   labels: {}
     #   annotations: {}
     #   project: my-project1
@@ -410,17 +488,17 @@ configs:
     #     bearerToken: "<authentication token>"
     #     tlsClientConfig:
     #       insecure: false
-  #       caData: "<base64 encoded certificate>"
-
-  # DEPRECATED - Moved to configs.ssh.annotations
-  # knownHostsAnnotations: {}
-  # DEPRECATED - Moved to configs.ssh.knownHosts
-  # knownHosts: {}
-
-  # DEPRECATED - Moved to configs.tls.annotations
-  # tlsCertsAnnotations: {}
-  # DEPRECATED - Moved to configs.tls.certificates
-  # tlsCerts: {}
+    #       caData: "<base64 encoded certificate>"
+    # mycluster4-sharded:
+    #   shard: 1
+    #   server: https://mycluster4.example.com
+    #   labels: {}
+    #   annotations: {}
+    #   config:
+    #     bearerToken: "<authentication token>"
+    #     tlsClientConfig:
+    #       insecure: false
+    #       caData: "<base64 encoded certificate>"
 
   # -- Repository credentials to be used as Templates for other repos
   ## Creates a secret for each key/value specified below to create repository credentials
@@ -443,14 +521,14 @@ configs:
     #  sshPrivateKey: |
     #    -----BEGIN OPENSSH PRIVATE KEY-----
     #    ...
-  #    -----END OPENSSH PRIVATE KEY-----
+    #    -----END OPENSSH PRIVATE KEY-----
 
   # -- Annotations to be added to `configs.credentialTemplates` Secret
   credentialTemplatesAnnotations: {}
 
   # -- Repositories list to be used by applications
   ## Creates a secret for each key/value specified below to create repositories
-  ## Note: the last example in the list would use a repository credential template, configured under "configs.repositoryCredentials".
+  ## Note: the last example in the list would use a repository credential template, configured under "configs.credentialTemplates".
   repositories: {}
     # istio-helm-repo:
     #   url: https://storage.googleapis.com/istio-prerelease/daily-build/master-latest-daily/charts
@@ -463,7 +541,7 @@ configs:
     #   password: my-password
     #   username: my-username
     # private-repo:
-  #   url: https://github.com/argoproj/private-repo
+    #   url: https://github.com/argoproj/private-repo
 
   # -- Annotations to be added to `configs.repositories` Secret
   repositoriesAnnotations: {}
@@ -488,6 +566,12 @@ configs:
     bitbucketUUID: ""
     # -- Shared secret for authenticating Gogs webhook events
     gogsSecret: ""
+    ## Azure DevOps
+    azureDevops:
+      # -- Shared secret username for authenticating Azure DevOps webhook events
+      username: ""
+      # -- Shared secret password for authenticating Azure DevOps webhook events
+      password: ""
 
     # -- add additional secrets to be added to argocd-secret
     ## Custom secrets. Useful for injecting SSO secrets into environment variables.
@@ -495,13 +579,7 @@ configs:
     ## Note that all values must be non-empty.
     extra:
       {}
-    # LDAP_PASSWORD: "mypassword"
-
-    # -- Argo TLS Data
-    # DEPRECATED - Use server.certificate or server.certificateSecret
-    # argocdServerTlsConfig:
-    #  key: ''
-    #  crt: ''
+      # LDAP_PASSWORD: "mypassword"
 
     # -- Bcrypt hashed admin password
     ## Argo expects the password in the secret to be bcrypt hashed. You can create this hash with
@@ -517,7 +595,7 @@ configs:
   ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/custom-styles/
   styles: ""
   # styles: |
-  #  .nav-bar {
+  #  .sidebar {
   #    background: linear-gradient(to bottom, #999, #777, #333, #222, #111);
   #  }
 
@@ -548,7 +626,7 @@ extraObjects: []
   #       secretName: argocd-secrets-store
   #       type: Opaque
   #       labels:
-#         app.kubernetes.io/part-of: argocd
+  #         app.kubernetes.io/part-of: argocd
 
 ## Application controller
 controller:
@@ -557,7 +635,28 @@ controller:
 
   # -- The number of application controller pods to run.
   # Additional replicas will cause sharding of managed clusters across number of replicas.
+  ## With dynamic cluster distribution turned on, sharding of the clusters will gracefully
+  ## rebalance if the number of replica's changes or one becomes unhealthy. (alpha)
   replicas: 1
+
+  # -- Enable dynamic cluster distribution (alpha)
+  # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/dynamic-cluster-distribution
+  ## This is done using a deployment instead of a statefulSet
+  ## When replicas are added or removed, the sharding algorithm is re-run to ensure that the
+  ## clusters are distributed according to the algorithm. If the algorithm is well-balanced,
+  ## like round-robin, then the shards will be well-balanced.
+  dynamicClusterDistribution: false
+
+  # -- Runtime class name for the application controller
+  # @default -- `""` (defaults to global.runtimeClassName)
+  runtimeClassName: ""
+
+  # -- Application controller heartbeat time
+  # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/dynamic-cluster-distribution/#working-of-dynamic-distribution
+  heartbeatTime: 10
+
+  # -- Maximum number of controller revisions that will be maintained in StatefulSet history
+  revisionHistoryLimit: 5
 
   ## Application controller Pod Disruption Budget
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
@@ -590,22 +689,6 @@ controller:
   # -- Secrets with credentials to pull images from a private registry
   # @default -- `[]` (defaults to global.imagePullSecrets)
   imagePullSecrets: []
-
-  # -- DEPRECATED - Application controller commandline flags
-  args: {}
-  # DEPRECATED - Use configs.params to override
-  #  # -- define the application controller `--status-processors`
-  #  statusProcessors: "20"
-  #  # -- define the application controller `--operation-processors`
-  #  operationProcessors: "10"
-  #  # -- define the application controller `--app-hard-resync`
-  #  appHardResyncPeriod: "0"
-  #  # -- define the application controller `--app-resync`
-  #  appResyncPeriod: "180"
-  #  # -- define the application controller `--self-heal-timeout-seconds`
-  #  selfHealTimeout: "5"
-  #  # -- define the application controller `--repo-server-timeout-seconds`
-  #  repoServerTimeoutSeconds: "60"
 
   # -- Additional command line arguments to pass to application controller
   extraArgs: []
@@ -652,8 +735,18 @@ controller:
   #  - name: custom-tools
   #    emptyDir: {}
 
+  ## Application controller emptyDir volumes
+  emptyDir:
+    # -- EmptyDir size limit for application controller
+    # @default -- `""` (defaults not set if not specified i.e. no size limit)
+    sizeLimit: ""
+    # sizeLimit: "1Gi"
+
   # -- Annotations for the application controller StatefulSet
   statefulsetAnnotations: {}
+
+  # -- Annotations for the application controller Deployment
+  deploymentAnnotations: {}
 
   # -- Annotations to be added to application controller pods
   podAnnotations: {}
@@ -693,7 +786,7 @@ controller:
       type: RuntimeDefault
     capabilities:
       drop:
-        - ALL
+      - ALL
 
   # Readiness probe for application controller
   ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
@@ -708,6 +801,9 @@ controller:
     successThreshold: 1
     # -- Number of seconds after which the [probe] times out
     timeoutSeconds: 1
+
+  # -- terminationGracePeriodSeconds for container lifecycle hook
+  terminationGracePeriodSeconds: 30
 
   # -- Priority class for the application controller pods
   # @default -- `""` (defaults to global.priorityClassName)
@@ -732,7 +828,10 @@ controller:
   topologySpreadConstraints: []
     # - maxSkew: 1
     #   topologyKey: topology.kubernetes.io/zone
-  #   whenUnsatisfiable: DoNotSchedule
+    #   whenUnsatisfiable: DoNotSchedule
+
+  # -- Automount API credentials for the Service Account into the pod.
+  automountServiceAccountToken: true
 
   serviceAccount:
     # -- Create a service account for the application controller
@@ -750,12 +849,18 @@ controller:
   metrics:
     # -- Deploy metrics service
     enabled: false
+    # -- Prometheus ServiceMonitor scrapeTimeout. If empty, Prometheus uses the global scrape timeout unless it is less than the target's scrape interval value in which the latter is used.
+    scrapeTimeout: ""
     applicationLabels:
       # -- Enables additional labels in argocd_app_labels metric
       enabled: false
       # -- Additional labels
       labels: []
     service:
+      # -- Metrics service type
+      type: ClusterIP
+      # -- Metrics service clusterIP. `None` makes a "headless service" (no virtual IP)
+      clusterIP: ""
       # -- Metrics service annotations
       annotations: {}
       # -- Metrics service labels
@@ -769,13 +874,15 @@ controller:
       enabled: false
       # -- Prometheus ServiceMonitor interval
       interval: 30s
+      # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+      honorLabels: false
       # -- Prometheus [RelabelConfigs] to apply to samples before scraping
       relabelings: []
       # -- Prometheus [MetricRelabelConfigs] to apply to samples before ingestion
       metricRelabelings: []
       # -- Prometheus ServiceMonitor selector
       selector: {}
-      # prometheus: kube-prometheus
+        # prometheus: kube-prometheus
 
       # -- Prometheus ServiceMonitor scheme
       scheme: ""
@@ -794,7 +901,7 @@ controller:
       namespace: "" # "monitoring"
       # -- PrometheusRule selector
       selector: {}
-      # prometheus: kube-prometheus
+        # prometheus: kube-prometheus
 
       # -- PrometheusRule labels
       additionalLabels: {}
@@ -846,6 +953,10 @@ dex:
   # -- Additional command line arguments to pass to the Dex server
   extraArgs: []
 
+  # -- Runtime class name for Dex
+  # @default -- `""` (defaults to global.runtimeClassName)
+  runtimeClassName: ""
+
   metrics:
     # -- Deploy metrics service
     enabled: false
@@ -861,13 +972,15 @@ dex:
       enabled: false
       # -- Prometheus ServiceMonitor interval
       interval: 30s
+      # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+      honorLabels: false
       # -- Prometheus [RelabelConfigs] to apply to samples before scraping
       relabelings: []
       # -- Prometheus [MetricRelabelConfigs] to apply to samples before ingestion
       metricRelabelings: []
       # -- Prometheus ServiceMonitor selector
       selector: {}
-      # prometheus: kube-prometheus
+        # prometheus: kube-prometheus
 
       # -- Prometheus ServiceMonitor scheme
       scheme: ""
@@ -901,7 +1014,7 @@ dex:
     # -- Dex image repository
     repository: ghcr.io/dexidp/dex
     # -- Dex image tag
-    tag: v2.35.3
+    tag: v2.41.1
     # -- Dex imagePullPolicy
     # @default -- `""` (defaults to global.image.imagePullPolicy)
     imagePullPolicy: ""
@@ -921,6 +1034,15 @@ dex:
     # -- Argo CD init image imagePullPolicy
     # @default -- `""` (defaults to global.image.imagePullPolicy)
     imagePullPolicy: ""
+    # -- Argo CD init image resources
+    # @default -- `{}` (defaults to dex.resources)
+    resources: {}
+    #  requests:
+    #    cpu: 5m
+    #    memory: 96Mi
+    #  limits:
+    #    cpu: 10m
+    #    memory: 144Mi
 
   # -- Environment variables to pass to the Dex server
   env: []
@@ -946,6 +1068,13 @@ dex:
 
   # -- Additional volumes to the dex pod
   volumes: []
+
+  ## Dex server emptyDir volumes
+  emptyDir:
+    # -- EmptyDir size limit for Dex server
+    # @default -- `""` (defaults not set if not specified i.e. no size limit)
+    sizeLimit: ""
+    # sizeLimit: "1Gi"
 
   # TLS certificate configuration via Secret
   ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/tls/#configuring-tls-to-argocd-dex-server
@@ -1007,13 +1136,19 @@ dex:
       type: RuntimeDefault
     capabilities:
       drop:
-        - ALL
+      - ALL
 
   ## Probes for Dex server
   ## Supported from Dex >= 2.28.0
   livenessProbe:
     # -- Enable Kubernetes liveness probe for Dex >= 2.28.0
     enabled: false
+    # -- Http path to use for the liveness probe
+    httpPath: /healthz/live
+    # -- Http port to use for the liveness probe
+    httpPort: metrics
+    # -- Scheme to use for for the liveness probe (can be HTTP or HTTPS)
+    httpScheme: HTTP
     # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
     failureThreshold: 3
     # -- Number of seconds after the container has started before [probe] is initiated
@@ -1028,6 +1163,12 @@ dex:
   readinessProbe:
     # -- Enable Kubernetes readiness probe for Dex >= 2.28.0
     enabled: false
+    # -- Http path to use for the readiness probe
+    httpPath: /healthz/ready
+    # -- Http port to use for the readiness probe
+    httpPort: metrics
+    # -- Scheme to use for for the liveness probe (can be HTTP or HTTPS)
+    httpScheme: HTTP
     # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
     failureThreshold: 3
     # -- Number of seconds after the container has started before [probe] is initiated
@@ -1038,6 +1179,12 @@ dex:
     successThreshold: 1
     # -- Number of seconds after which the [probe] times out
     timeoutSeconds: 1
+
+  # -- terminationGracePeriodSeconds for container lifecycle hook
+  terminationGracePeriodSeconds: 30
+
+  # -- Automount API credentials for the Service Account into the pod.
+  automountServiceAccountToken: true
 
   serviceAccount:
     # -- Create dex service account
@@ -1083,7 +1230,21 @@ dex:
   topologySpreadConstraints: []
     # - maxSkew: 1
     #   topologyKey: topology.kubernetes.io/zone
-  #   whenUnsatisfiable: DoNotSchedule
+    #   whenUnsatisfiable: DoNotSchedule
+
+  # -- Deployment strategy to be added to the Dex server Deployment
+  deploymentStrategy: {}
+    # type: RollingUpdate
+    # rollingUpdate:
+    #   maxSurge: 25%
+    #   maxUnavailable: 25%
+
+  # -- Dex log format. Either `text` or `json`
+  # @default -- `""` (defaults to global.logging.format)
+  logFormat: ""
+  # -- Dex log level. One of: `debug`, `info`, `warn`, `error`
+  # @default -- `""` (defaults to global.logging.level)
+  logLevel: ""
 
 ## Redis
 redis:
@@ -1091,6 +1252,10 @@ redis:
   enabled: true
   # -- Redis name
   name: redis
+
+  # -- Runtime class name for redis
+  # @default -- `""` (defaults to global.runtimeClassName)
+  runtimeClassName: ""
 
   ## Redis Pod Disruption Budget
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
@@ -1113,7 +1278,7 @@ redis:
     # -- Redis repository
     repository: public.ecr.aws/docker/library/redis
     # -- Redis tag
-    tag: 7.0.7-alpine
+    tag: 7.4.1-alpine
     # -- Redis image pull policy
     # @default -- `""` (defaults to global.image.imagePullPolicy)
     imagePullPolicy: ""
@@ -1129,7 +1294,7 @@ redis:
       # -- Repository to use for the redis-exporter
       repository: public.ecr.aws/bitnami/redis-exporter
       # -- Tag to use for the redis-exporter
-      tag: 1.45.0
+      tag: 1.58.0
       # -- Image pull policy for the redis-exporter
       # @default -- `""` (defaults to global.image.imagePullPolicy)
       imagePullPolicy: ""
@@ -1144,7 +1309,36 @@ redis:
         type: RuntimeDefault
       capabilities:
         drop:
-          - ALL
+        - ALL
+
+    ## Probes for Redis exporter (optional)
+    ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
+    readinessProbe:
+      # -- Enable Kubernetes liveness probe for Redis exporter (optional)
+      enabled: false
+      # -- Number of seconds after the container has started before [probe] is initiated
+      initialDelaySeconds: 30
+      # -- How often (in seconds) to perform the [probe]
+      periodSeconds: 15
+      # -- Number of seconds after which the [probe] times out
+      timeoutSeconds: 15
+      # -- Minimum consecutive successes for the [probe] to be considered successful after having failed
+      successThreshold: 1
+      # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
+      failureThreshold: 5
+    livenessProbe:
+      # -- Enable Kubernetes liveness probe for Redis exporter
+      enabled: false
+      # -- Number of seconds after the container has started before [probe] is initiated
+      initialDelaySeconds: 30
+      # -- How often (in seconds) to perform the [probe]
+      periodSeconds: 15
+      # -- Number of seconds after which the [probe] times out
+      timeoutSeconds: 15
+      # -- Minimum consecutive successes for the [probe] to be considered successful after having failed
+      successThreshold: 1
+      # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
+      failureThreshold: 5
 
     # -- Resource limits and requests for redis-exporter sidecar
     resources: {}
@@ -1153,7 +1347,7 @@ redis:
       #   memory: 64Mi
       # requests:
       #   cpu: 10m
-    #   memory: 32Mi
+      #   memory: 32Mi
 
   # -- Secrets with credentials to pull images from a private registry
   # @default -- `[]` (defaults to global.imagePullSecrets)
@@ -1174,6 +1368,35 @@ redis:
   #     name: config-map-name
   # - secretRef:
   #     name: secret-name
+
+  ## Probes for Redis server (optional)
+  ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
+  readinessProbe:
+    # -- Enable Kubernetes liveness probe for Redis server
+    enabled: false
+    # -- Number of seconds after the container has started before [probe] is initiated
+    initialDelaySeconds: 30
+    # -- How often (in seconds) to perform the [probe]
+    periodSeconds: 15
+    # -- Number of seconds after which the [probe] times out
+    timeoutSeconds: 15
+    # -- Minimum consecutive successes for the [probe] to be considered successful after having failed
+    successThreshold: 1
+    # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
+    failureThreshold: 5
+  livenessProbe:
+    # -- Enable Kubernetes liveness probe for Redis server
+    enabled: false
+    # -- Number of seconds after the container has started before [probe] is initiated
+    initialDelaySeconds: 30
+    # -- How often (in seconds) to perform the [probe]
+    periodSeconds: 15
+    # -- Number of seconds after which the [probe] times out
+    timeoutSeconds: 15
+    # -- Minimum consecutive successes for the [probe] to be considered successful after having failed
+    successThreshold: 1
+    # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
+    failureThreshold: 5
 
   # -- Additional containers to be added to the redis pod
   ## Note: Supports use of custom Helm templates
@@ -1230,10 +1453,11 @@ redis:
   # -- Redis container-level security context
   # @default -- See [values.yaml]
   containerSecurityContext:
+    readOnlyRootFilesystem: true
     allowPrivilegeEscalation: false
     capabilities:
       drop:
-        - ALL
+      - ALL
 
   # -- Redis service port
   servicePort: 6379
@@ -1261,7 +1485,13 @@ redis:
   topologySpreadConstraints: []
     # - maxSkew: 1
     #   topologyKey: topology.kubernetes.io/zone
-  #   whenUnsatisfiable: DoNotSchedule
+    #   whenUnsatisfiable: DoNotSchedule
+
+  # -- terminationGracePeriodSeconds for container lifecycle hook
+  terminationGracePeriodSeconds: 30
+
+  # -- Automount API credentials for the Service Account into the pod.
+  automountServiceAccountToken: true
 
   serviceAccount:
     # -- Create a service account for the redis pod
@@ -1303,13 +1533,15 @@ redis:
       enabled: false
       # -- Interval at which metrics should be scraped
       interval: 30s
+      # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+      honorLabels: false
       # -- Prometheus [RelabelConfigs] to apply to samples before scraping
       relabelings: []
       # -- Prometheus [MetricRelabelConfigs] to apply to samples before ingestion
       metricRelabelings: []
       # -- Prometheus ServiceMonitor selector
       selector: {}
-      # prometheus: kube-prometheus
+        # prometheus: kube-prometheus
 
       # -- Prometheus ServiceMonitor scheme
       scheme: ""
@@ -1322,12 +1554,17 @@ redis:
       # -- Prometheus ServiceMonitor annotations
       annotations: {}
 
-# This key configures Redis-HA subchart and when enabled (redis-ha.enabled=true)
-# the custom redis deployment is omitted
-# Check the redis-ha chart for more properties
+## Redis-HA subchart replaces custom redis deployment when `redis-ha.enabled=true`
+# Ref: https://github.com/DandyDeveloper/charts/blob/master/charts/redis-ha/values.yaml
 redis-ha:
   # -- Enables the Redis HA subchart and disables the custom Redis single node deployment
   enabled: false
+  ## Redis image
+  image:
+    # -- Redis repository
+    repository: public.ecr.aws/docker/library/redis
+    # -- Redis tag
+    tag: 7.4.1-alpine
   ## Prometheus redis-exporter sidecar
   exporter:
     # -- Enable Prometheus redis-exporter sidecar
@@ -1335,10 +1572,11 @@ redis-ha:
     # -- Repository to use for the redis-exporter
     image: public.ecr.aws/bitnami/redis-exporter
     # -- Tag to use for the redis-exporter
-    tag: 1.45.0
+    tag: 1.58.0
   persistentVolume:
     # -- Configures persistence on Redis nodes
     enabled: false
+  ## Redis specific configuration options
   redis:
     # -- Redis convention for naming the cluster group: must match `^[\\w-\\.]+$` and can be templated
     masterGroupName: argocd
@@ -1348,16 +1586,49 @@ redis-ha:
       # -- Will save the DB if both the given number of seconds and the given number of write operations against the DB occurred. `""`  is disabled
       # @default -- `'""'`
       save: '""'
+  ## Enables a HA Proxy for better LoadBalancing / Sentinel Master support. Automatically proxies to Redis master.
   haproxy:
     # -- Enabled HAProxy LoadBalancing/Proxy
     enabled: true
+    # --  Custom labels for the haproxy pod. This is relevant for Argo CD CLI.
+    labels:
+      app.kubernetes.io/name: argocd-redis-ha-haproxy
     metrics:
       # -- HAProxy enable prometheus metric scraping
       enabled: true
-  image:
-    # -- Redis tag
-    tag: 7.0.7-alpine
+    # -- Whether the haproxy pods should be forced to run on separate nodes.
+    hardAntiAffinity: true
+    # -- Additional affinities to add to the haproxy pods.
+    additionalAffinities: {}
+    # -- Assign custom [affinity] rules to the haproxy pods.
+    affinity: |
 
+    # -- [Tolerations] for use with node taints for haproxy pods.
+    tolerations: []
+    # -- HAProxy container-level security context
+    # @default -- See [values.yaml]
+    containerSecurityContext:
+      readOnlyRootFilesystem: true
+
+  # -- Configures redis-ha with AUTH
+  auth: true
+  # -- Existing Secret to use for redis-ha authentication.
+  # By default the redis-secret-init Job is generating this Secret.
+  existingSecret: argocd-redis
+
+  # -- Whether the Redis server pods should be forced to run on separate nodes.
+  hardAntiAffinity: true
+
+  # -- Additional affinities to add to the Redis server pods.
+  additionalAffinities: {}
+
+  # -- Assign custom [affinity] rules to the Redis pods.
+  affinity: |
+
+  # -- [Tolerations] for use with node taints for Redis pods.
+  tolerations: []
+
+  # -- Assign custom [TopologySpreadConstraints] rules to the Redis pods.
   ## https://kubernetes.io/docs/concepts/workloads/pods/pod-topology-spread-constraints/
   topologySpreadConstraints:
     # -- Enable Redis HA topology spread constraints
@@ -1371,6 +1642,10 @@ redis-ha:
     # -- Enforcement policy, hard or soft
     # @default -- `""` (defaults to `ScheduleAnyway`)
     whenUnsatisfiable: ""
+  # -- Redis HA statefulset container-level security context
+  # @default -- See [values.yaml]
+  containerSecurityContext:
+    readOnlyRootFilesystem: true
 
 # External Redis parameters
 externalRedis:
@@ -1382,11 +1657,90 @@ externalRedis:
   password: ""
   # -- External Redis server port
   port: 6379
-  # -- The name of an existing secret with Redis credentials (must contain key `redis-password`).
+  # -- The name of an existing secret with Redis (must contain key `redis-password`) and Sentinel credentials.
   # When it's set, the `externalRedis.password` parameter is ignored
   existingSecret: ""
   # -- External Redis Secret annotations
   secretAnnotations: {}
+
+redisSecretInit:
+  # -- Enable Redis secret initialization. If disabled, secret must be provisioned by alternative methods
+  enabled: true
+  # -- Redis secret-init name
+  name: redis-secret-init
+
+  image:
+    # -- Repository to use for the Redis secret-init Job
+    # @default -- `""` (defaults to global.image.repository)
+    repository: "" # defaults to global.image.repository
+    # -- Tag to use for the Redis secret-init Job
+    # @default -- `""` (defaults to global.image.tag)
+    tag: "" # defaults to global.image.tag
+    # -- Image pull policy for the Redis secret-init Job
+    # @default -- `""` (defaults to global.image.imagePullPolicy)
+    imagePullPolicy: "" # IfNotPresent
+
+  # -- Secrets with credentials to pull images from a private registry
+  # @default -- `[]` (defaults to global.imagePullSecrets)
+  imagePullSecrets: []
+
+  # -- Annotations to be added to the Redis secret-init Job
+  jobAnnotations: {}
+
+  # -- Annotations to be added to the Redis secret-init Job
+  podAnnotations: {}
+
+  # -- Labels to be added to the Redis secret-init Job
+  podLabels: {}
+
+  # -- Resource limits and requests for Redis secret-init Job
+  resources: {}
+  #  limits:
+  #    cpu: 200m
+  #    memory: 128Mi
+  #  requests:
+  #    cpu: 100m
+  #    memory: 64Mi
+
+  # -- Application controller container-level security context
+  # @default -- See [values.yaml]
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  # -- Redis secret-init Job pod-level security context
+  securityContext: {}
+
+  serviceAccount:
+    # -- Create a service account for the redis pod
+    create: true
+    # -- Service account name for redis pod
+    name: ""
+    # -- Annotations applied to created service account
+    annotations: {}
+    # -- Automount API credentials for the Service Account
+    automountServiceAccountToken: true
+
+  # -- Priority class for Redis secret-init Job
+  # @default -- `""` (defaults to global.priorityClassName)
+  priorityClassName: ""
+
+  # -- Assign custom [affinity] rules to the Redis secret-init Job
+  affinity: {}
+
+  # -- Node selector to be added to the Redis secret-init Job
+  # @default -- `{}` (defaults to global.nodeSelector)
+  nodeSelector: {}
+
+  # -- Tolerations to be added to the Redis secret-init Job
+  # @default -- `[]` (defaults to global.tolerations)
+  tolerations: []
 
 ## Server
 server:
@@ -1395,6 +1749,10 @@ server:
 
   # -- The number of server pods to run
   replicas: 1
+
+  # -- Runtime class name for the Argo CD server
+  # @default -- `""` (defaults to global.runtimeClassName)
+  runtimeClassName: ""
 
   ## Argo CD server Horizontal Pod Autoscaler
   autoscaling:
@@ -1409,7 +1767,6 @@ server:
     # -- Average memory utilization percentage for the Argo CD server [HPA]
     targetMemoryUtilizationPercentage: 50
     # -- Configures the scaling behavior of the target in both Up and Down directions.
-    # This is only available on HPA apiVersion `autoscaling/v2beta2` and newer
     behavior: {}
       # scaleDown:
       #  stabilizationWindowSeconds: 300
@@ -1422,7 +1779,10 @@ server:
       #   policies:
       #   - type: Pods
       #     value: 2
-    #     periodSeconds: 60
+      #     periodSeconds: 60
+    # -- Configures custom HPA metrics for the Argo CD server
+    # Ref: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/
+    metrics: []
 
   ## Argo CD server Pod Disruption Budget
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
@@ -1473,22 +1833,35 @@ server:
   # -- Specify postStart and preStop lifecycle hooks for your argo-cd-server container
   lifecycle: {}
 
-  ## Argo UI extensions
+  ## Argo CD extensions
   ## This function in tech preview stage, do expect instability or breaking changes in newer versions.
-  ## Ref: https://github.com/argoproj-labs/argocd-extensions
+  ## Ref: https://github.com/argoproj-labs/argocd-extension-installer
+  ## When you enable extensions, you need to configure RBAC of logged in Argo CD user.
+  ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/rbac/#the-extensions-resource
   extensions:
-    # -- Enable support for Argo UI extensions
+    # -- Enable support for Argo CD extensions
     enabled: false
 
-    ## Argo UI extensions image
+    ## Argo CD extension installer image
     image:
-      # -- Repository to use for extensions image
-      repository: "ghcr.io/argoproj-labs/argocd-extensions"
-      # -- Tag to use for extensions image
-      tag: "v0.2.1"
+      # -- Repository to use for extension installer image
+      repository: "quay.io/argoprojlabs/argocd-extension-installer"
+      # -- Tag to use for extension installer image
+      tag: "v0.0.5"
       # -- Image pull policy for extensions
       # @default -- `""` (defaults to global.image.imagePullPolicy)
       imagePullPolicy: ""
+
+    # -- Extensions for Argo CD
+    # @default -- `[]` (See [values.yaml])
+    ## Ref: https://github.com/argoproj-labs/argocd-extension-metrics#install-ui-extension
+    extensionList: []
+    #  - name: extension-metrics
+    #    env:
+    #      - name: EXTENSION_URL
+    #        value: https://github.com/argoproj-labs/argocd-extension-metrics/releases/download/v1.0.0/extension.tar.gz
+    #      - name: EXTENSION_CHECKSUM_URL
+    #        value: https://github.com/argoproj-labs/argocd-extension-metrics/releases/download/v1.0.0/extension_checksums.txt
 
     # -- Server UI extensions container-level security context
     # @default -- See [values.yaml]
@@ -1496,11 +1869,12 @@ server:
       runAsNonRoot: true
       readOnlyRootFilesystem: true
       allowPrivilegeEscalation: false
+      runAsUser: 1000
       seccompProfile:
         type: RuntimeDefault
       capabilities:
         drop:
-          - ALL
+        - ALL
 
     # -- Resource limits and requests for the argocd-extensions container
     resources: {}
@@ -1561,6 +1935,13 @@ server:
   #  - name: custom-tools
   #    emptyDir: {}
 
+  ## Argo CD server emptyDir volumes
+  emptyDir:
+    # -- EmptyDir size limit for the Argo CD server
+    # @default -- `""` (defaults not set if not specified i.e. no size limit)
+    sizeLimit: ""
+    # sizeLimit: "1Gi"
+
   # -- Annotations to be added to server Deployment
   deploymentAnnotations: {}
 
@@ -1604,7 +1985,7 @@ server:
       type: RuntimeDefault
     capabilities:
       drop:
-        - ALL
+      - ALL
 
   ## Readiness and liveness probes for default backend
   ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
@@ -1632,6 +2013,9 @@ server:
     # -- Number of seconds after which the [probe] times out
     timeoutSeconds: 1
 
+  # -- terminationGracePeriodSeconds for container lifecycle hook
+  terminationGracePeriodSeconds: 30
+
   # -- Priority class for the Argo CD server pods
   # @default -- `""` (defaults to global.priorityClassName)
   priorityClassName: ""
@@ -1655,17 +2039,23 @@ server:
   topologySpreadConstraints: []
     # - maxSkew: 1
     #   topologyKey: topology.kubernetes.io/zone
-  #   whenUnsatisfiable: DoNotSchedule
+    #   whenUnsatisfiable: DoNotSchedule
+
+  # -- Deployment strategy to be added to the server Deployment
+  deploymentStrategy: {}
+    # type: RollingUpdate
+    # rollingUpdate:
+    #   maxSurge: 25%
+    #   maxUnavailable: 25%
 
   # TLS certificate configuration via cert-manager
   ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/tls/#tls-certificates-used-by-argocd-server
   certificate:
     # -- Deploy a Certificate resource (requires cert-manager)
     enabled: false
-    # -- The name of the Secret that will be automatically created and managed by this Certificate resource
-    secretName: argocd-server-tls
     # -- Certificate primary domain (commonName)
-    domain: argocd.example.com
+    # @default -- `""` (defaults to global.domain)
+    domain: ""
     # -- Certificate Subject Alternate Names (SANs)
     additionalHosts: []
     # -- The requested 'duration' (i.e. lifetime) of the certificate.
@@ -1695,6 +2085,13 @@ server:
       algorithm: RSA
       # -- Key bit size of the private key. If algorithm is set to `Ed25519`, size is ignored.
       size: 2048
+    # -- Annotations to be applied to the Server Certificate
+    annotations: {}
+    # -- Usages for the certificate
+    ### Ref: https://cert-manager.io/docs/reference/api-docs/#cert-manager.io/v1.KeyUsage
+    usages: []
+    # -- Annotations that allow the certificate to be composed from data residing in existing Kubernetes Resources
+    secretTemplateAnnotations: {}
 
   # TLS certificate configuration via Secret
   ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/tls/#tls-certificates-used-by-argocd-server
@@ -1730,22 +2127,34 @@ server:
     servicePortHttpName: http
     # -- Server service https port name, can be used to route traffic via istio
     servicePortHttpsName: https
+    # -- Server service https port appProtocol
+    ## Ref: https://kubernetes.io/docs/concepts/services-networking/service/#application-protocol
+    servicePortHttpsAppProtocol: ""
+    # -- The class of the load balancer implementation
+    loadBalancerClass: ""
     # -- LoadBalancer will get created with the IP specified in this field
     loadBalancerIP: ""
     # -- Source IP ranges to allow access to service from
+    ## Ref: https://kubernetes.io/docs/tasks/access-application-cluster/configure-cloud-provider-firewall/#restrict-access-for-loadbalancer-service
     loadBalancerSourceRanges: []
     # -- Server service external IPs
     externalIPs: []
     # -- Denotes if this Service desires to route external traffic to node-local or cluster-wide endpoints
-    externalTrafficPolicy: ""
+    ## Ref: https://kubernetes.io/docs/tasks/access-application-cluster/create-external-load-balancer/#preserving-the-client-source-ip
+    externalTrafficPolicy: Cluster
     # -- Used to maintain session affinity. Supports `ClientIP` and `None`
-    sessionAffinity: ""
+    ## Ref: https://kubernetes.io/docs/concepts/services-networking/service/#virtual-ips-and-service-proxies
+    sessionAffinity: None
 
   ## Server metrics service configuration
   metrics:
     # -- Deploy metrics service
     enabled: false
     service:
+      # -- Metrics service type
+      type: ClusterIP
+      # -- Metrics service clusterIP. `None` makes a "headless service" (no virtual IP)
+      clusterIP: ""
       # -- Metrics service annotations
       annotations: {}
       # -- Metrics service labels
@@ -1759,13 +2168,17 @@ server:
       enabled: false
       # -- Prometheus ServiceMonitor interval
       interval: 30s
+      # -- Prometheus ServiceMonitor scrapeTimeout. If empty, Prometheus uses the global scrape timeout unless it is less than the target's scrape interval value in which the latter is used.
+      scrapeTimeout: ""
+      # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+      honorLabels: false
       # -- Prometheus [RelabelConfigs] to apply to samples before scraping
       relabelings: []
       # -- Prometheus [MetricRelabelConfigs] to apply to samples before ingestion
       metricRelabelings: []
       # -- Prometheus ServiceMonitor selector
       selector: {}
-      # prometheus: kube-prometheus
+        # prometheus: kube-prometheus
 
       # -- Prometheus ServiceMonitor scheme
       scheme: ""
@@ -1777,6 +2190,9 @@ server:
       additionalLabels: {}
       # -- Prometheus ServiceMonitor annotations
       annotations: {}
+
+  # -- Automount API credentials for the Service Account into the pod.
+  automountServiceAccountToken: true
 
   serviceAccount:
     # -- Create server service account
@@ -1790,29 +2206,48 @@ server:
     # -- Automount API credentials for the Service Account
     automountServiceAccountToken: true
 
+  # Argo CD server ingress configuration
   ingress:
     # -- Enable an ingress resource for the Argo CD server
     enabled: false
-    # -- Additional ingress annotations
-    annotations: {}
+    # -- Specific implementation for ingress controller. One of `generic`, `aws` or `gke`
+    ## Additional configuration might be required in related configuration sections
+    controller: generic
     # -- Additional ingress labels
     labels: {}
+    # -- Additional ingress annotations
+    ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#option-1-ssl-passthrough
+    annotations: {}
+      # nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      # nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+
     # -- Defines which ingress controller will implement the resource
     ingressClassName: ""
 
-    # -- List of ingress hosts
-    ## Argo Ingress.
-    ## Hostnames must be provided if Ingress is enabled.
-    ## Secrets must be manually created in the namespace
-    hosts: []
-    # - argocd.example.com
+    # -- Argo CD server hostname
+    # @default -- `""` (defaults to global.domain)
+    hostname: ""
 
-    # -- List of ingress paths
-    paths:
-      - /
+    # -- The path to Argo CD server
+    path: /
+
     # -- Ingress path type. One of `Exact`, `Prefix` or `ImplementationSpecific`
     pathType: Prefix
+
+    # -- Enable TLS configuration for the hostname defined at `server.ingress.hostname`
+    ## TLS certificate will be retrieved from a TLS secret `argocd-server-tls`
+    ## You can create this secret via `certificate` or `certificateSecret` option
+    tls: false
+
+    # -- The list of additional hostnames to be covered by ingress record
+    # @default -- `[]` (See [values.yaml])
+    extraHosts: []
+      # - name: argocd.example.com
+      #   path: /
+
     # -- Additional ingress paths
+    # @default -- `[]` (See [values.yaml])
+    ## Note: Supports use of custom Helm templates
     extraPaths: []
       # - path: /*
       #   pathType: Prefix
@@ -1820,24 +2255,78 @@ server:
       #     service:
       #       name: ssl-redirect
       #       port:
-    #         name: use-annotation
+      #         name: use-annotation
 
-    # -- Ingress TLS configuration
-    tls: []
-      # - secretName: your-certificate-name
-      #   hosts:
-    #     - argocd.example.com
+    # -- Additional ingress rules
+    # @default -- `[]` (See [values.yaml])
+    ## Note: Supports use of custom Helm templates
+    extraRules: []
+      # - http:
+      #     paths:
+      #     - path: /
+      #       pathType: Prefix
+      #       backend:
+      #         service:
+      #           name: '{{ include "argo-cd.server.fullname" . }}'
+      #           port:
+      #             name: '{{ .Values.server.service.servicePortHttpsName }}'
 
-    # -- Uses `server.service.servicePortHttps` instead `server.service.servicePortHttp`
-    https: false
+    # -- Additional TLS configuration
+    # @default -- `[]` (See [values.yaml])
+    extraTls: []
+      # - hosts:
+      #   - argocd.example.com
+      #   secretName: your-certificate-name
 
-  # dedicated ingress for gRPC as documented at
-  # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/
+    # AWS specific options for Application Load Balancer
+    # Applies only when `serv.ingress.controller` is set to `aws`
+    ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#aws-application-load-balancers-albs-and-classic-elb-http-mode
+    aws:
+      # -- Backend protocol version for the AWS ALB gRPC service
+      ## This tells AWS to send traffic from the ALB using gRPC.
+      ## For more information: https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html#health-check-settings
+      backendProtocolVersion: GRPC
+      # -- Service type for the AWS ALB gRPC service
+      ## Can be of type NodePort or ClusterIP depending on which mode you are running.
+      ## Instance mode needs type NodePort, IP mode needs type ClusterIP
+      ## Ref: https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.2/how-it-works/#ingress-traffic
+      serviceType: NodePort
+
+    # Google specific options for Google Application Load Balancer
+    # Applies only when `server.ingress.controller` is set to `gke`
+    ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#google-cloud-load-balancers-with-kubernetes-ingress
+    gke:
+      # -- Google [BackendConfig] resource, for use with the GKE Ingress Controller
+      # @default -- `{}` (See [values.yaml])
+      ## Ref: https://cloud.google.com/kubernetes-engine/docs/how-to/ingress-features#configuring_ingress_features_through_frontendconfig_parameters
+      backendConfig: {}
+        # iap:
+        #  enabled: true
+        #  oauthclientCredentials:
+        #    secretName: argocd-secret
+
+      # -- Google [FrontendConfig] resource, for use with the GKE Ingress Controller
+      # @default -- `{}` (See [values.yaml])
+      ## Ref: https://cloud.google.com/kubernetes-engine/docs/how-to/ingress-features#configuring_ingress_features_through_frontendconfig_parameters
+      frontendConfig: {}
+        # redirectToHttps:
+        #   enabled: true
+        #   responseCodeName: RESPONSE_CODE
+
+      # Managed GKE certificate for ingress hostname
+      managedCertificate:
+        # -- Create ManagedCertificate resource and annotations for Google Load balancer
+        ## Ref: https://cloud.google.com/kubernetes-engine/docs/how-to/managed-certs
+        create: true
+        # -- Additional domains for ManagedCertificate resource
+        extraDomains: []
+          # - argocd.example.com
+
+  # Dedicated gRPC ingress for ingress controllers that supports only single backend protocol per Ingress resource
+  # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#option-2-multiple-ingress-objects-and-hosts
   ingressGrpc:
     # -- Enable an ingress resource for the Argo CD server for dedicated [gRPC-ingress]
     enabled: false
-    # -- Setup up gRPC ingress to work with an AWS ALB
-    isAWSALB: false
     # -- Additional ingress annotations for dedicated [gRPC-ingress]
     annotations: {}
     # -- Additional ingress labels for dedicated [gRPC-ingress]
@@ -1845,32 +2334,29 @@ server:
     # -- Defines which ingress controller will implement the resource [gRPC-ingress]
     ingressClassName: ""
 
-    awsALB:
-      # -- Service type for the AWS ALB gRPC service
-      ## Service Type if isAWSALB is set to true
-      ## Can be of type NodePort or ClusterIP depending on which mode you are
-      ## are running. Instance mode needs type NodePort, IP mode needs type
-      ## ClusterIP
-      ## Ref: https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.2/how-it-works/#ingress-traffic
-      serviceType: NodePort
-      # -- Backend protocol version for the AWS ALB gRPC service
-      ## This tells AWS to send traffic from the ALB using HTTP2. Can use gRPC as well if you want to leverage gRPC specific features
-      backendProtocolVersion: HTTP2
+    # -- Argo CD server hostname for dedicated [gRPC-ingress]
+    # @default -- `""` (defaults to grpc.`server.ingress.hostname`)
+    hostname: ""
 
-    # -- List of ingress hosts for dedicated [gRPC-ingress]
-    ## Argo Ingress.
-    ## Hostnames must be provided if Ingress is enabled.
-    ## Secrets must be manually created in the namespace
-    ##
-    hosts: []
-    # - argocd.example.com
+    # -- Argo CD server ingress path for dedicated [gRPC-ingress]
+    path: /
 
-    # -- List of ingress paths for dedicated [gRPC-ingress]
-    paths:
-      - /
     # -- Ingress path type for dedicated [gRPC-ingress]. One of `Exact`, `Prefix` or `ImplementationSpecific`
     pathType: Prefix
+
+    # -- Enable TLS configuration for the hostname defined at `server.ingressGrpc.hostname`
+    ## TLS certificate will be retrieved from a TLS secret with name: `argocd-server-grpc-tls`
+    tls: false
+
+    # -- The list of additional hostnames to be covered by ingress record
+    # @default -- `[]` (See [values.yaml])
+    extraHosts: []
+      # - name: grpc.argocd.example.com
+      #   path: /
+
     # -- Additional ingress paths for dedicated [gRPC-ingress]
+    # @default -- `[]` (See [values.yaml])
+    ## Note: Supports use of custom Helm templates
     extraPaths: []
       # - path: /*
       #   pathType: Prefix
@@ -1878,16 +2364,28 @@ server:
       #     service:
       #       name: ssl-redirect
       #       port:
-    #         name: use-annotation
+      #         name: use-annotation
 
-    # -- Ingress TLS configuration for dedicated [gRPC-ingress]
-    tls: []
+    # -- Additional ingress rules
+    # @default -- `[]` (See [values.yaml])
+    ## Note: Supports use of custom Helm templates
+    extraRules: []
+      # - http:
+      #     paths:
+      #     - path: /
+      #       pathType: Prefix
+      #       backend:
+      #         service:
+      #           name: '{{ include "argo-cd.server.fullname" . }}'
+      #           port:
+      #             name: '{{ .Values.server.service.servicePortHttpName }}'
+
+    # -- Additional TLS configuration for dedicated [gRPC-ingress]
+    # @default -- `[]` (See [values.yaml])
+    extraTls: []
       # - secretName: your-certificate-name
       #   hosts:
-    #     - argocd.example.com
-
-    # -- Uses `server.service.servicePortHttps` instead `server.service.servicePortHttp`
-    https: false
+      #     - argocd.example.com
 
   # Create a OpenShift Route with SSL passthrough for UI and CLI
   # Consider setting 'hostname' e.g. https://argocd.apps-crc.testing/ using your Default Ingress Controller Domain
@@ -1905,37 +2403,13 @@ server:
     # -- Termination policy of Openshift Route
     termination_policy: None
 
-  GKEbackendConfig:
-    # -- Enable BackendConfig custom resource for Google Kubernetes Engine
+  ## Enable this and set the rules: to whatever custom rules you want for the Cluster Role resource.
+  ## Defaults to off
+  clusterRoleRules:
+    # -- Enable custom rules for the server's ClusterRole resource
     enabled: false
-    # -- [BackendConfigSpec]
-    spec: {}
-  #  spec:
-  #    iap:
-  #      enabled: true
-  #      oauthclientCredentials:
-  #        secretName: argocd-secret
-
-  ## Create a Google Managed Certificate for use with the GKE Ingress Controller
-  ## https://cloud.google.com/kubernetes-engine/docs/how-to/managed-certs
-  GKEmanagedCertificate:
-    # -- Enable ManagedCertificate custom resource for Google Kubernetes Engine.
-    enabled: false
-    # -- Domains for the Google Managed Certificate
-    domains:
-      - argocd.example.com
-
-  ## Create a Google FrontendConfig Custom Resource, for use with the GKE Ingress Controller
-  ## https://cloud.google.com/kubernetes-engine/docs/how-to/ingress-features#configuring_ingress_features_through_frontendconfig_parameters
-  GKEfrontendConfig:
-    # -- Enable FrontConfig custom resource for Google Kubernetes Engine
-    enabled: false
-    # -- [FrontendConfigSpec]
-    spec: {}
-  # spec:
-  #   redirectToHttps:
-  #     enabled: true
-  #     responseCodeName: RESPONSE_CODE
+    # -- List of custom rules for the server's ClusterRole resource
+    rules: []
 
 ## Repo Server
 repoServer:
@@ -1944,6 +2418,10 @@ repoServer:
 
   # -- The number of repo server pods to run
   replicas: 1
+
+  # -- Runtime class name for the repo server
+  # @default -- `""` (defaults to global.runtimeClassName)
+  runtimeClassName: ""
 
   ## Repo server Horizontal Pod Autoscaler
   autoscaling:
@@ -1958,7 +2436,6 @@ repoServer:
     # -- Average memory utilization percentage for the repo server [HPA]
     targetMemoryUtilizationPercentage: 50
     # -- Configures the scaling behavior of the target in both Up and Down directions.
-    # This is only available on HPA apiVersion `autoscaling/v2beta2` and newer
     behavior: {}
       # scaleDown:
       #  stabilizationWindowSeconds: 300
@@ -1971,7 +2448,10 @@ repoServer:
       #   policies:
       #   - type: Pods
       #     value: 2
-    #     periodSeconds: 60
+      #     periodSeconds: 60
+    # -- Configures custom HPA metrics for the Argo CD repo server
+    # Ref: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/
+    metrics: []
 
   ## Repo server Pod Disruption Budget
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
@@ -2019,6 +2499,9 @@ repoServer:
   # - secretRef:
   #     name: secret-name
 
+  # -- Specify postStart and preStop lifecycle hooks for your argo-repo-server container
+  lifecycle: {}
+
   # -- Additional containers to be added to the repo server pod
   ## Ref: https://argo-cd.readthedocs.io/en/stable/user-guide/config-management-plugins/
   ## Note: Supports use of custom Helm templates
@@ -2062,7 +2545,7 @@ repoServer:
     #     # Starting with v2.4, do NOT mount the same tmp volume as the repo-server container. The filesystem separation helps
     #     # mitigate path traversal attacks.
     #     - mountPath: /tmp
-  #       name: cmp-tmp
+    #       name: cmp-tmp
 
   # -- Init containers to add to the repo server pods
   initContainers: []
@@ -2077,6 +2560,34 @@ repoServer:
   #      name: argocd-cmp-cm
   #  - name: cmp-tmp
   #    emptyDir: {}
+
+  # -- Volumes to be used in replacement of emptydir on default volumes
+  existingVolumes: {}
+  #  gpgKeyring:
+  #    persistentVolumeClaim:
+  #      claimName: pvc-argocd-repo-server-keyring
+  #  helmWorkingDir:
+  #    persistentVolumeClaim:
+  #      claimName: pvc-argocd-repo-server-workdir
+  #  tmp:
+  #    persistentVolumeClaim:
+  #      claimName: pvc-argocd-repo-server-tmp
+  #  varFiles:
+  #    persistentVolumeClaim:
+  #      claimName: pvc-argocd-repo-server-varfiles
+  #  plugins:
+  #    persistentVolumeClaim:
+  #      claimName: pvc-argocd-repo-server-plugins
+
+  ## RepoServer emptyDir volumes
+  emptyDir:
+    # -- EmptyDir size limit for repo server
+    # @default -- `""` (defaults not set if not specified i.e. no size limit)
+    sizeLimit: ""
+    # sizeLimit: "1Gi"
+
+  # -- Toggle the usage of a ephemeral Helm working directory
+  useEphemeralHelmWorkingDir: true
 
   # -- Annotations to be added to repo server Deployment
   deploymentAnnotations: {}
@@ -2106,7 +2617,7 @@ repoServer:
   # -- Host Network for Repo server pods
   hostNetwork: false
 
-  # -- [DNS configuration]
+    # -- [DNS configuration]
   dnsConfig: {}
   # -- Alternative DNS policy for Repo server pods
   dnsPolicy: "ClusterFirst"
@@ -2121,7 +2632,7 @@ repoServer:
       type: RuntimeDefault
     capabilities:
       drop:
-        - ALL
+      - ALL
 
   ## Readiness and liveness probes for default backend
   ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
@@ -2149,6 +2660,9 @@ repoServer:
     # -- Number of seconds after which the [probe] times out
     timeoutSeconds: 1
 
+  # -- terminationGracePeriodSeconds for container lifecycle hook
+  terminationGracePeriodSeconds: 30
+
   # -- [Node selector]
   # @default -- `{}` (defaults to global.nodeSelector)
   nodeSelector: {}
@@ -2168,7 +2682,14 @@ repoServer:
   topologySpreadConstraints: []
     # - maxSkew: 1
     #   topologyKey: topology.kubernetes.io/zone
-  #   whenUnsatisfiable: DoNotSchedule
+    #   whenUnsatisfiable: DoNotSchedule
+
+  # -- Deployment strategy to be added to the repo server Deployment
+  deploymentStrategy: {}
+    # type: RollingUpdate
+    # rollingUpdate:
+    #   maxSurge: 25%
+    #   maxUnavailable: 25%
 
   # -- Priority class for the repo server pods
   # @default -- `""` (defaults to global.priorityClassName)
@@ -2200,13 +2721,17 @@ repoServer:
     # -- Repo server service port
     port: 8081
     # -- Repo server service port name
-    portName: https-repo-server
+    portName: tcp-repo-server
 
   ## Repo server metrics service configuration
   metrics:
     # -- Deploy metrics service
     enabled: false
     service:
+      # -- Metrics service type
+      type: ClusterIP
+      # -- Metrics service clusterIP. `None` makes a "headless service" (no virtual IP)
+      clusterIP: ""
       # -- Metrics service annotations
       annotations: {}
       # -- Metrics service labels
@@ -2220,13 +2745,17 @@ repoServer:
       enabled: false
       # -- Prometheus ServiceMonitor interval
       interval: 30s
+      # -- Prometheus ServiceMonitor scrapeTimeout. If empty, Prometheus uses the global scrape timeout unless it is less than the target's scrape interval value in which the latter is used.
+      scrapeTimeout: ""
+      # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+      honorLabels: false
       # -- Prometheus [RelabelConfigs] to apply to samples before scraping
       relabelings: []
       # -- Prometheus [MetricRelabelConfigs] to apply to samples before ingestion
       metricRelabelings: []
       # -- Prometheus ServiceMonitor selector
       selector: {}
-      # prometheus: kube-prometheus
+        # prometheus: kube-prometheus
 
       # -- Prometheus ServiceMonitor scheme
       scheme: ""
@@ -2247,6 +2776,9 @@ repoServer:
     enabled: false
     # -- List of custom rules for the Repo server's Cluster Role resource
     rules: []
+
+  # -- Automount API credentials for the Service Account into the pod.
+  automountServiceAccountToken: true
 
   ## Repo server service account
   ## If create is set to true, make sure to uncomment the name and update the rbac section below
@@ -2275,14 +2807,15 @@ repoServer:
 
 ## ApplicationSet controller
 applicationSet:
-  # -- Enable ApplicationSet controller
-  enabled: true
-
   # -- ApplicationSet controller name string
   name: applicationset-controller
 
   # -- The number of ApplicationSet controller pods to run
-  replicaCount: 1
+  replicas: 1
+
+  # -- Runtime class name for the ApplicationSet controller
+  # @default -- `""` (defaults to global.runtimeClassName)
+  runtimeClassName: ""
 
   ## ApplicationSet controller Pod Disruption Budget
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
@@ -2316,22 +2849,13 @@ applicationSet:
   # @default -- `[]` (defaults to global.imagePullSecrets)
   imagePullSecrets: []
 
-  # -- DEPRECATED - ApplicationSet controller command line flags
-  args: {}
-    # DEPRECATED - Use configs.params.applicationsetcontroller.policy to override
-    # -- How application is synced between the generator and the cluster
-    # policy: sync
-    # DEPRECATED - Use configs.params.applicationsetcontroller.dryrun to override
-    # -- Enable dry run mode
-  # dryRun: false
-
-  # -- List of extra cli args to add
+  # -- ApplicationSet controller command line flags
   extraArgs: []
 
   # -- Environment variables to pass to the ApplicationSet controller
   extraEnv: []
     # - name: "MY_VAR"
-  #   value: "value"
+    #   value: "value"
 
   # -- envFrom to pass to the ApplicationSet controller
   # @default -- `[]` (See [values.yaml])
@@ -2339,7 +2863,7 @@ applicationSet:
     # - configMapRef:
     #     name: config-map-name
     # - secretRef:
-  #     name: secret-name
+    #     name: secret-name
 
   # -- Additional containers to be added to the ApplicationSet controller pod
   ## Note: Supports use of custom Helm templates
@@ -2355,17 +2879,28 @@ applicationSet:
   # -- List of extra volumes to add
   extraVolumes: []
 
+  ## ApplicationSet controller emptyDir volumes
+  emptyDir:
+    # -- EmptyDir size limit for applicationSet controller
+    # @default -- `""` (defaults not set if not specified i.e. no size limit)
+    sizeLimit: ""
+    # sizeLimit: "1Gi"
+
   ## Metrics service configuration
   metrics:
     # -- Deploy metrics service
     enabled: false
     service:
+      # -- Metrics service type
+      type: ClusterIP
+      # -- Metrics service clusterIP. `None` makes a "headless service" (no virtual IP)
+      clusterIP: ""
       # -- Metrics service annotations
       annotations: {}
       # -- Metrics service labels
       labels: {}
       # -- Metrics service port
-      servicePort: 8085
+      servicePort: 8080
       # -- Metrics service port name
       portName: http-metrics
     serviceMonitor:
@@ -2373,13 +2908,17 @@ applicationSet:
       enabled: false
       # -- Prometheus ServiceMonitor interval
       interval: 30s
+      # -- Prometheus ServiceMonitor scrapeTimeout. If empty, Prometheus uses the global scrape timeout unless it is less than the target's scrape interval value in which the latter is used.
+      scrapeTimeout: ""
+      # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+      honorLabels: false
       # -- Prometheus [RelabelConfigs] to apply to samples before scraping
       relabelings: []
       # -- Prometheus [MetricRelabelConfigs] to apply to samples before ingestion
       metricRelabelings: []
       # -- Prometheus ServiceMonitor selector
       selector: {}
-      # prometheus: kube-prometheus
+        # prometheus: kube-prometheus
 
       # -- Prometheus ServiceMonitor scheme
       scheme: ""
@@ -2398,10 +2937,15 @@ applicationSet:
     annotations: {}
     # -- ApplicationSet service labels
     labels: {}
+    # -- ApplicationSet service type
+    type: ClusterIP
     # -- ApplicationSet service port
     port: 7000
     # -- ApplicationSet service port name
-    portName: webhook
+    portName: http-webhook
+
+  # -- Automount API credentials for the Service Account into the pod.
+  automountServiceAccountToken: true
 
   serviceAccount:
     # -- Create ApplicationSet controller service account
@@ -2431,7 +2975,7 @@ applicationSet:
     #   memory: 128Mi
     # requests:
     #   cpu: 100m
-  #   memory: 128Mi
+    #   memory: 128Mi
 
   # ApplicationSet controller container ports
   containerPorts:
@@ -2457,7 +3001,7 @@ applicationSet:
       type: RuntimeDefault
     capabilities:
       drop:
-        - ALL
+      - ALL
 
   ## Probes for ApplicationSet controller (optional)
   ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
@@ -2489,6 +3033,9 @@ applicationSet:
     # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
     failureThreshold: 3
 
+  # -- terminationGracePeriodSeconds for container lifecycle hook
+  terminationGracePeriodSeconds: 30
+
   # -- [Node selector]
   # @default -- `{}` (defaults to global.nodeSelector)
   nodeSelector: {}
@@ -2508,57 +3055,125 @@ applicationSet:
   topologySpreadConstraints: []
     # - maxSkew: 1
     #   topologyKey: topology.kubernetes.io/zone
-  #   whenUnsatisfiable: DoNotSchedule
+    #   whenUnsatisfiable: DoNotSchedule
+
+  # -- Deployment strategy to be added to the ApplicationSet controller Deployment
+  deploymentStrategy: {}
+    # type: RollingUpdate
+    # rollingUpdate:
+    #   maxSurge: 25%
+    #   maxUnavailable: 25%
 
   # -- Priority class for the ApplicationSet controller pods
   # @default -- `""` (defaults to global.priorityClassName)
   priorityClassName: ""
 
-  ## Webhook for the Git Generator
+  # TLS certificate configuration via cert-manager
+  ## Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/tls/#tls-configuration
+  certificate:
+    # -- Deploy a Certificate resource (requires cert-manager)
+    enabled: false
+    # -- Certificate primary domain (commonName)
+    # @default -- `""` (defaults to global.domain)
+    domain: ""
+    # -- Certificate Subject Alternate Names (SANs)
+    additionalHosts: []
+    # -- The requested 'duration' (i.e. lifetime) of the certificate.
+    # @default -- `""` (defaults to 2160h = 90d if not specified)
+    ## Ref: https://cert-manager.io/docs/usage/certificate/#renewal
+    duration: ""
+    # -- How long before the expiry a certificate should be renewed.
+    # @default -- `""` (defaults to 360h = 15d if not specified)
+    ## Ref: https://cert-manager.io/docs/usage/certificate/#renewal
+    renewBefore: ""
+    # Certificate issuer
+    ## Ref: https://cert-manager.io/docs/concepts/issuer
+    issuer:
+      # -- Certificate issuer group. Set if using an external issuer. Eg. `cert-manager.io`
+      group: ""
+      # -- Certificate issuer kind. Either `Issuer` or `ClusterIssuer`
+      kind: ""
+      # -- Certificate issuer name. Eg. `letsencrypt`
+      name: ""
+    # Private key of the certificate
+    privateKey:
+      # -- Rotation policy of private key when certificate is re-issued. Either: `Never` or `Always`
+      rotationPolicy: Never
+      # -- The private key cryptography standards (PKCS) encoding for private key. Either: `PCKS1` or `PKCS8`
+      encoding: PKCS1
+      # -- Algorithm used to generate certificate private key. One of: `RSA`, `Ed25519` or `ECDSA`
+      algorithm: RSA
+      # -- Key bit size of the private key. If algorithm is set to `Ed25519`, size is ignored.
+      size: 2048
+    # -- Annotations to be applied to the ApplicationSet Certificate
+    annotations: {}
+
+  ## Ingress for the Git Generator webhook
   ## Ref: https://argocd-applicationset.readthedocs.io/en/master/Generators-Git/#webhook-configuration)
-  webhook:
-    ingress:
-      # -- Enable an ingress resource for Webhooks
-      enabled: false
-      # -- Additional ingress annotations
-      annotations: {}
-      # -- Additional ingress labels
-      labels: {}
-      # -- Defines which ingress ApplicationSet controller will implement the resource
-      ingressClassName: ""
+  ingress:
+    # -- Enable an ingress resource for ApplicationSet webhook
+    enabled: false
+    # -- Additional ingress labels
+    labels: {}
+    # -- Additional ingress annotations
+    annotations: {}
 
-      # -- List of ingress hosts
-      ## Hostnames must be provided if Ingress is enabled.
-      ## Secrets must be manually created in the namespace
-      hosts: []
-      # - argocd-applicationset.example.com
+    # -- Defines which ingress ApplicationSet controller will implement the resource
+    ingressClassName: ""
 
-      # -- List of ingress paths
-      paths:
-        - /api/webhook
-      # -- Ingress path type. One of `Exact`, `Prefix` or `ImplementationSpecific`
-      pathType: Prefix
-      # -- Additional ingress paths
-      extraPaths: []
-        # - path: /*
-        #   backend:
-        #     serviceName: ssl-redirect
-        #     servicePort: use-annotation
-        ## for Kubernetes >=1.19 (when "networking.k8s.io/v1" is used)
-        # - path: /*
-        #   pathType: Prefix
-        #   backend:
-        #     service:
-        #       name: ssl-redirect
-        #       port:
+    # -- Argo CD ApplicationSet hostname
+    # @default -- `""` (defaults to global.domain)
+    hostname: ""
+
+    # -- List of ingress paths
+    path: /api/webhook
+
+    # -- Ingress path type. One of `Exact`, `Prefix` or `ImplementationSpecific`
+    pathType: Prefix
+
+    # -- Enable TLS configuration for the hostname defined at `applicationSet.webhook.ingress.hostname`
+    ## TLS certificate will be retrieved from a TLS secret with name:`argocd-applicationset-controller-tls`
+    tls: false
+
+    # -- The list of additional hostnames to be covered by ingress record
+    # @default -- `[]` (See [values.yaml])
+    extraHosts: []
+      # - name: argocd.example.com
+      #   path: /
+
+    # -- Additional ingress paths
+    # @default -- `[]` (See [values.yaml])
+    extraPaths: []
+      # - path: /*
+      #   pathType: Prefix
+      #   backend:
+      #     service:
+      #       name: ssl-redirect
+      #       port:
       #         name: use-annotation
 
-      # -- Ingress TLS configuration
-      tls: []
-        # - secretName: argocd-applicationset-tls
-        #   hosts:
-      #     - argocd-applicationset.example.com
+    # -- Additional ingress rules
+    # @default -- `[]` (See [values.yaml])
+    ## Note: Supports use of custom Helm templates
+    extraRules: []
+      # - http:
+      #    paths:
+      #    - path: /api/webhook
+      #      pathType: Prefix
+      #      backend:
+      #        service:
+      #          name: '{{ include "argo-cd.applicationSet.fullname" . }}'
+      #          port:
+      #            name: '{{ .Values.applicationSet.service.portName }}'
 
+    # -- Additional ingress TLS configuration
+    # @default -- `[]` (See [values.yaml])
+    extraTls: []
+      # - secretName: argocd-applicationset-tls
+      #   hosts:
+      #     - argocd-applicationset.example.com
+  # -- Enable ApplicationSet in any namespace feature
+  allowAnyNamespace: false
 ## Notifications controller
 notifications:
   # -- Enable notifications controller
@@ -2568,7 +3183,12 @@ notifications:
   name: notifications-controller
 
   # -- Argo CD dashboard url; used in place of {{.context.argocdUrl}} in templates
-  argocdUrl:
+  # @default -- `""` (defaults to https://`global.domain`)
+  argocdUrl: ""
+
+  # -- Runtime class name for the notifications controller
+  # @default -- `""` (defaults to global.runtimeClassName)
+  runtimeClassName: ""
 
   ## Notifications controller Pod Disruption Budget
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
@@ -2621,7 +3241,7 @@ notifications:
     # - configMapRef:
     #     name: config-map-name
     # - secretRef:
-  #     name: secret-name
+    #     name: secret-name
 
   # -- Additional containers to be added to the notifications controller pod
   ## Note: Supports use of custom Helm templates
@@ -2638,33 +3258,40 @@ notifications:
   extraVolumes: []
 
   # -- Define user-defined context
-  ## For more information: https://argocd-notifications.readthedocs.io/en/stable/templates/#defining-user-defined-context
+  ## For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/templates/#defining-user-defined-context
   context: {}
     # region: east
-  # environmentName: staging
+    # environmentName: staging
 
   secret:
     # -- Whether helm chart creates notifications controller secret
+    ## If true, will create a secret with the name below. Otherwise, will assume existence of a secret with that name.
     create: true
+
+    # -- notifications controller Secret name
+    name: "argocd-notifications-secret"
 
     # -- key:value pairs of annotations to be added to the secret
     annotations: {}
 
+    # -- key:value pairs of labels to be added to the secret
+    labels: {}
+
     # -- Generic key:value pairs to be inserted into the secret
     ## Can be used for templates, notification services etc. Some examples given below.
-    ## For more information: https://argocd-notifications.readthedocs.io/en/stable/services/overview/
+    ## For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/services/overview/
     items: {}
       # slack-token:
-      #   # For more information: https://argocd-notifications.readthedocs.io/en/stable/services/slack/
+      #   # For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/services/slack/
 
       # grafana-apiKey:
-      #   # For more information: https://argocd-notifications.readthedocs.io/en/stable/services/grafana/
+      #   # For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/services/grafana/
 
       # webhooks-github-token:
 
       # email-username:
       # email-password:
-    # For more information: https://argocd-notifications.readthedocs.io/en/stable/services/email/
+        # For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/services/email/
 
   metrics:
     # -- Enables prometheus metrics server
@@ -2672,6 +3299,10 @@ notifications:
     # -- Metrics port
     port: 9001
     service:
+      # -- Metrics service type
+      type: ClusterIP
+      # -- Metrics service clusterIP. `None` makes a "headless service" (no virtual IP)
+      clusterIP: ""
       # -- Metrics service annotations
       annotations: {}
       # -- Metrics service labels
@@ -2683,7 +3314,7 @@ notifications:
       enabled: false
       # -- Prometheus ServiceMonitor selector
       selector: {}
-      # prometheus: kube-prometheus
+        # prometheus: kube-prometheus
       # -- Prometheus ServiceMonitor labels
       additionalLabels: {}
       # -- Prometheus ServiceMonitor annotations
@@ -2695,6 +3326,8 @@ notifications:
       scheme: ""
       # -- Prometheus ServiceMonitor tlsConfig
       tlsConfig: {}
+      # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+      honorLabels: false
       # -- Prometheus [RelabelConfigs] to apply to samples before scraping
       relabelings: []
       # -- Prometheus [MetricRelabelConfigs] to apply to samples before ingestion
@@ -2702,10 +3335,10 @@ notifications:
 
   # -- Configures notification services such as slack, email or custom webhook
   # @default -- See [values.yaml]
-  ## For more information: https://argocd-notifications.readthedocs.io/en/stable/services/overview/
+  ## For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/services/overview/
   notifiers: {}
     # service.slack: |
-  #   token: $slack-token
+    #   token: $slack-token
 
   # -- Annotations to be applied to the notifications controller Deployment
   deploymentAnnotations: {}
@@ -2723,7 +3356,7 @@ notifications:
     #   memory: 128Mi
     # requests:
     #   cpu: 100m
-  #   memory: 128Mi
+    #   memory: 128Mi
 
   # Notification controller container ports
   containerPorts:
@@ -2745,7 +3378,40 @@ notifications:
       type: RuntimeDefault
     capabilities:
       drop:
-        - ALL
+      - ALL
+
+  ## Probes for notifications controller Pods (optional)
+  ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
+  readinessProbe:
+    # -- Enable Kubernetes liveness probe for notifications controller Pods
+    enabled: false
+    # -- Number of seconds after the container has started before [probe] is initiated
+    initialDelaySeconds: 10
+    # -- How often (in seconds) to perform the [probe]
+    periodSeconds: 10
+    # -- Number of seconds after which the [probe] times out
+    timeoutSeconds: 1
+    # -- Minimum consecutive successes for the [probe] to be considered successful after having failed
+    successThreshold: 1
+    # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
+    failureThreshold: 3
+
+  livenessProbe:
+    # -- Enable Kubernetes liveness probe for notifications controller Pods
+    enabled: false
+    # -- Number of seconds after the container has started before [probe] is initiated
+    initialDelaySeconds: 10
+    # -- How often (in seconds) to perform the [probe]
+    periodSeconds: 10
+    # -- Number of seconds after which the [probe] times out
+    timeoutSeconds: 1
+    # -- Minimum consecutive successes for the [probe] to be considered successful after having failed
+    successThreshold: 1
+    # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
+    failureThreshold: 3
+
+  # -- terminationGracePeriodSeconds for container lifecycle hook
+  terminationGracePeriodSeconds: 30
 
   # -- [Node selector]
   # @default -- `{}` (defaults to global.nodeSelector)
@@ -2766,11 +3432,18 @@ notifications:
   topologySpreadConstraints: []
     # - maxSkew: 1
     #   topologyKey: topology.kubernetes.io/zone
-  #   whenUnsatisfiable: DoNotSchedule
+    #   whenUnsatisfiable: DoNotSchedule
+
+  # -- Deployment strategy to be added to the notifications controller Deployment
+  deploymentStrategy:
+    type: Recreate
 
   # -- Priority class for the notifications controller pods
   # @default -- `""` (defaults to global.priorityClassName)
   priorityClassName: ""
+
+  # -- Automount API credentials for the Service Account into the pod.
+  automountServiceAccountToken: true
 
   serviceAccount:
     # -- Create notifications controller service account
@@ -2788,8 +3461,14 @@ notifications:
     # -- Whether helm chart creates notifications controller config map
     create: true
 
+  ## Enable this and set the rules: to whatever custom rules you want for the Cluster Role resource.
+  ## Defaults to off
+  clusterRoleRules:
+    # -- List of custom rules for the notifications controller's ClusterRole resource
+    rules: []
+
   # -- Contains centrally managed global application subscriptions
-  ## For more information: https://argocd-notifications.readthedocs.io/en/stable/subscriptions/
+  ## For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/subscriptions/
   subscriptions: []
     # # subscription for on-sync-status-unknown trigger notifications
     # - recipients:
@@ -2802,10 +3481,10 @@ notifications:
     #   - slack:test3
     #   selector: test=true
     #   triggers:
-  #   - on-sync-status-unknown
+    #   - on-sync-status-unknown
 
   # -- The notification template is used to generate the notification content
-  ## For more information: https://argocd-notifications.readthedocs.io/en/stable/templates/
+  ## For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/templates/
   templates: {}
     # template.app-deployed: |
     #   email:
@@ -3019,10 +3698,10 @@ notifications:
     #         }
     #         {{end}}
     #         ]
-  #       }]
+    #       }]
 
   # -- The trigger defines the condition when the notification should be sent
-  ## For more information: https://argocd-notifications.readthedocs.io/en/stable/triggers/
+  ## For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/triggers/
   triggers: {}
     # trigger.on-deployed: |
     #   - description: Application is synced and healthy. Triggered once per commit.
@@ -3056,6 +3735,6 @@ notifications:
     #     - app-sync-succeeded
     #     when: app.status.operationState.phase in ['Succeeded']
     #
-    # For more information: https://argocd-notifications.readthedocs.io/en/stable/triggers/#default-triggers
+    # For more information: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/triggers/#default-triggers
     # defaultTriggers: |
-  #   - on-sync-status-unknown
+    #   - on-sync-status-unknown
