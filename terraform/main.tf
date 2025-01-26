@@ -21,3 +21,13 @@ module "secrets-store" {
 
   secrets-store-config-path = "./configs/secretstore-values.yaml"
 }
+
+module "acm" {
+  source = "../terraform-modules/acm"
+
+  domain_name = var.domain_name
+  subject_alternative_names = var.subject_alternative_names
+  cloudflare_zone_id = var.cloudflare_zone_id
+  cloudflare_email = var.cloudflare_email
+  cloudflare_api_token = var.cloudflare_api_token
+}
