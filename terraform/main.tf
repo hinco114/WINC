@@ -20,8 +20,9 @@ module "secrets-store" {
   source = "../terraform-modules/eks-plugins/secretstore"
   depends_on = [ module.eks-cluster ]
 
-  secrets-store-config-path = "./configs/secretstore-values.yaml"
+  secrets_store_config_path = "./configs/secretstore-values.yaml"
 }
+
 
 module "acm" {
   source = "../terraform-modules/acm"

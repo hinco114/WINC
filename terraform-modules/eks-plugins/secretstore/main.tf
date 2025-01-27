@@ -6,6 +6,6 @@ resource "helm_release" "secrets_store_csi_driver" {
   namespace  = "kube-system"
 
   values = [
-    file(var.secrets-store-config-path)
+    file(var.secrets_store_config_path)
   ]
 }
