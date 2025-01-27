@@ -1,7 +1,7 @@
 module "eks-cluster" {
   source = "../terraform-modules/eks"
 
-  eks_config_path =  "./configs/eks-values.yaml"
+  eks_config_path = "./configs/eks-values.yaml"
 }
 
 module "argocd" {
