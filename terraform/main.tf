@@ -1,5 +1,7 @@
 module "eks-cluster" {
   source = "../terraform-modules/eks"
+
+  eks_config_path =  "./configs/eks-values.yaml"
 }
 
 module "argocd" {
@@ -12,7 +14,6 @@ module "argocd" {
   privateGithubClientSecret = var.privateGithubClientSecret
   orgGithubClientId = var.orgGithubClientId
   orgGithubClientSecret = var.orgGithubClientSecret
-
 }
 
 module "secrets-store" {

@@ -1,4 +1,3 @@
-variable "CONFIG_YAML_PATH" {
+variable "eks_config_path" {
   type = string
-  default = "./configs/eks-cluster-config.yaml"
 }
