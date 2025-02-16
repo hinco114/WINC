@@ -9,3 +9,13 @@ output "private_subnet" {
 output "public_subnet" {
   value = aws_subnet.public_subnet.*.id
 }
+
+output "nat_instance_sg" {
+  value = aws_security_group.nat_instance_sg.*.id
+}
+
+output "nat_subnet" {
+  value = aws_subnet.nat_subnet.*.id
+}
+
+

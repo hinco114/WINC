@@ -1,3 +1,12 @@
+module "vpc" {
+  source = "../terraform-modules/vpc"
+
+  tag_prefix = var.tag_prefix
+  use_nat_instance = true
+  nat_instance_arch = "arm64"
+  nat_instance_type = "t4g.nano"
+}
+
 module "eks-cluster" {
   source = "../terraform-modules/eks"
 
