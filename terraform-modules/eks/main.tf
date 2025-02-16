@@ -4,7 +4,7 @@ resource "null_resource" "eks-cluster" {
   }
 
   provisioner "local-exec" {
-    when    = "destroy"
-    command = "eksctl delete cluster -f ${var.eks_config_path}"
+    when    = destroy
+    command = "eksctl delete cluster -f ${self.triggers.file}"
   }
 }
