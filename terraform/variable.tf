@@ -3,6 +3,17 @@ variable "tag_prefix" {
   default = "WINC"
 }
 
+variable "common_tags" {
+  description = "Common tags to apply to all resources"
+  type        = map(string)
+  default = {
+    Environment = "production"
+    Project     = "WINC"
+    ManagedBy   = "terraform"
+    Owner       = "hinco"
+  }
+}
+
 variable "privateGithubClientId" {
   type = string
 }
