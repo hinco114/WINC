@@ -7,7 +7,7 @@ resource "aws_vpc" "main_vpc" {
   }
 }
 
-# Private subnets
+# Private subnets. 각 AZ에 하나씩 생성
 resource "aws_subnet" "private_subnet" {
   count             = length(data.aws_availability_zones.available.names)
   vpc_id            = aws_vpc.main_vpc.id
@@ -18,7 +18,7 @@ resource "aws_subnet" "private_subnet" {
   }
 }
 
-# Public subnets
+# Public subnets. 각 AZ에 하나씩 생성
 resource "aws_subnet" "public_subnet" {
   count                   = length(data.aws_availability_zones.available.names)
   vpc_id                  = aws_vpc.main_vpc.id
@@ -83,37 +83,20 @@ resource "aws_security_group" "nat_instance_sg" {
   }
 }
 
-# Query the latest Amazon Linux 2023 AMI
-data "aws_ami" "amazon_linux_2023" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["al2023-ami-2023*-kernel-6.1-*"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = [var.nat_instance_arch]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-}
-
-# NAT Instance (Conditional creation)
 resource "aws_instance" "nat_instance" {
   count = var.use_nat_instance ? var.nat_instance_count : 0
 
-  # If nat_instance_count is changed, Terraform will destroy the existing instances and create new ones
-  # To avoid this, use specific AMI ID for the NAT instance
+  lifecycle {
+    ignore_changes = [
+      ami, // 최초 생성이 아닌 경우 AMI 변화로 인한 인스턴스 재생성 방지
+      associate_public_ip_address, // 최초 생성이 아닌 경우 공인 IP 변화로 인한 인스턴스 재생성 방지
+    ]
+  }
+
   ami                         = length(var.nat_instance_ami) > 0 ? var.nat_instance_ami : data.aws_ami.amazon_linux_2023.id
   instance_type               = var.nat_instance_type
   subnet_id                   = aws_subnet.public_subnet[count.index].id
-  associate_public_ip_address = true
+  associate_public_ip_address = false
   source_dest_check           = false
   vpc_security_group_ids      = [aws_security_group.nat_instance_sg[0].id]
 
@@ -152,27 +135,21 @@ resource "aws_instance" "nat_instance" {
   }
 }
 
-# EIPs for NAT Instances
+# EIPs for NAT Instances (eip_allocation_ids 길이가 0이면 새 EIP를 각 NAT 인스턴스 수만큼 생성)
 resource "aws_eip" "nat_instance_eip" {
-  count = var.use_nat_instance ? var.nat_instance_count : 0
+  count  = var.use_nat_instance && length(var.eip_allocation_ids) == 0 ? var.nat_instance_count : 0
+  domain = "vpc"
+
+  tags = {
+    Name = "${var.tag_prefix}-nat-eip-${count.index + 1}"
+  }
 }
 
-# Associate EIPs with NAT Instances
 resource "aws_eip_association" "nat_instance_eip_association" {
   count = var.use_nat_instance ? var.nat_instance_count : 0
 
-  instance_id   = aws_instance.nat_instance[count.index].id
-  allocation_id = aws_eip.nat_instance_eip[count.index].id
-}
-
-# Query the NAT Instance's ENI
-data "aws_network_interface" "nat_instance_eni" {
-  count = var.use_nat_instance ? var.nat_instance_count : 0
-
-  filter {
-    name   = "attachment.instance-id"
-    values = [aws_instance.nat_instance[count.index].id]
-  }
+  instance_id = aws_instance.nat_instance[count.index].id
+  allocation_id = length(var.eip_allocation_ids) == 0 ? aws_eip.nat_instance_eip[count.index].id : var.eip_allocation_ids[count.index]
 }
 
 # 프라이빗 서브넷 개수와 NAT 인스턴스 개수에 따른 배치 로직
@@ -191,7 +168,7 @@ locals {
   }
 }
 
-# Private Route Table (Conditional creation)
+# Private subnet Route Table (조건부 생성)
 resource "aws_route_table" "private_route_table" {
   count = var.use_nat_instance ? length(data.aws_availability_zones.available.names) : 0
 
@@ -207,7 +184,7 @@ resource "aws_route_table" "private_route_table" {
   }
 }
 
-# Associate NAT Instance with Private Subnet Route Table (Conditional creation)
+# NAT 인스턴스와 Private Subnet Route Table 연결 (조건부 생성)
 resource "aws_route_table_association" "private_route_table_association" {
   count = var.use_nat_instance ? length(data.aws_availability_zones.available.names) : 0
 
@@ -215,7 +192,7 @@ resource "aws_route_table_association" "private_route_table_association" {
   subnet_id      = aws_subnet.private_subnet[count.index].id
 }
 
-# EC2 Instance Connect Endpoint
+# EC2 Instance Connect Endpoint Security Group
 resource "aws_security_group" "eice_sg" {
   name        = "ec2-instance-connect-endpoint-sg"
   description = "Security group for EC2 Instance Connect Endpoint"
@@ -225,8 +202,8 @@ resource "aws_security_group" "eice_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # For better security, restrict the access range
-    description = "Allow SSH access from specific IPs"
+    cidr_blocks = [aws_vpc.main_vpc.cidr_block]
+    description = "Allow SSH access from VPC"
   }
 
   # Outbound rules - allow connection to EC2 instances
@@ -243,15 +220,15 @@ resource "aws_security_group" "eice_sg" {
   }
 }
 
-# Create EC2 Instance Connect Endpoint
+# EC2 Instance Connect Endpoint 생성
 resource "aws_ec2_instance_connect_endpoint" "eice" {
   subnet_id          = aws_subnet.private_subnet[0].id
   security_group_ids = [aws_security_group.eice_sg.id]
   
-  # Preservation setting - to protect against accidental deletion (optional)
   preserve_client_ip = true
   
   tags = {
     Name = "ec2-instance-connect-endpoint"
   }
 }
+

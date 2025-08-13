@@ -15,10 +15,11 @@ output "nat_instance_sg" {
 }
 
 output "nat_instance_public_ip" {
-  value = aws_instance.nat_instance.*.public_ip
+  description = "NAT 인스턴스에 할당된 퍼블릭 IP 목록 (외부 제공 EIP 또는 새로 생성된 EIP)"
+  value = length(var.eip_allocation_ids) == 0 ? aws_eip.nat_instance_eip[*].public_ip : data.aws_eip.provided[*].public_ip
 }
 
 output "nat_distribution_pattern" {
   value = local.nat_distribution
-  description = "Distribution pattern for NAT instances"
+  description = "NAT 인스턴스 배치 패턴 (각 서브넷에 할당된 NAT 인스턴스 번호)"
 }

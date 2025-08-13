@@ -1,3 +1,11 @@
+resource "aws_eip" "nat_instance_eip" {
+  domain = "vpc"
+
+  tags = {
+    Name = "nat-eip"
+  }
+}
+
 module "vpc" {
   source = "../terraform-modules/vpc"
 
@@ -5,6 +13,7 @@ module "vpc" {
   use_nat_instance = true
   nat_instance_arch = "arm64"
   nat_instance_type = "t4g.nano"
+  eip_allocation_ids = [aws_eip.nat_instance_eip.id]
 }
 
 module "eks-cluster" {
