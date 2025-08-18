@@ -2,6 +2,10 @@ output "vpc_id" {
   value = aws_vpc.main_vpc.id
 }
 
+output "vpc_cidr_block" {
+  value = aws_vpc.main_vpc.cidr_block
+}
+
 output "private_subnets" {
   value = aws_subnet.private_subnet.*.id
 }
@@ -22,4 +26,8 @@ output "nat_instance_public_ip" {
 output "nat_distribution_pattern" {
   value = local.nat_distribution
   description = "NAT 인스턴스 배치 패턴 (각 서브넷에 할당된 NAT 인스턴스 번호)"
+}
+
+output "eice_sg_id" {
+  value = aws_security_group.eice_sg.id
 }

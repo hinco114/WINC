@@ -2,7 +2,7 @@ resource "aws_eip" "nat_instance_eip" {
   domain = "vpc"
 
   tags = {
-    Name = "nat-eip"
+    Name = "${var.tag_prefix}-nat-eip"
   }
 }
 
@@ -14,6 +14,36 @@ module "vpc" {
   nat_instance_arch = "arm64"
   nat_instance_type = "t4g.nano"
   eip_allocation_ids = [aws_eip.nat_instance_eip.id]
+  nat_instance_ami = data.aws_ami.amazon_linux_2023.id
+}
+
+resource "aws_key_pair" "default_key_pair" {
+  key_name = "${var.tag_prefix}-default-key-pair"
+  public_key = data.local_file.id_rsa_pub.content
+}
+
+module "bastion" {
+  source = "../terraform-modules/bastion"
+
+  tag_prefix = var.tag_prefix
+  vpc_id = module.vpc.vpc_id
+  vpc_cidr_block = module.vpc.vpc_cidr_block
+  public_subnet_id = module.vpc.public_subnets[0]
+  bastion_ami = data.aws_ami.amazon_linux_2023.id
+  bastion_instance_type = "t3.micro"
+  eice_sg_id = module.vpc.eice_sg_id
+  key_pair_name = aws_key_pair.default_key_pair.key_name
+}
+
+// Bastion 에 현재 공인 IP 주소 허용 처리
+resource "aws_security_group_rule" "bastion_sg_rule" {
+  security_group_id = module.bastion.bastion_sg_id
+
+  type = "ingress"
+  from_port = 0
+  to_port = 0
+  protocol = "-1"
+  cidr_blocks = [local.my_ip_cidr]
 }
 
 module "eks-cluster" {

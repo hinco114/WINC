@@ -62,6 +62,7 @@ resource "aws_security_group" "nat_instance_sg" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = [var.ipv4_cidr_block]
+    description = "Allow all traffic from VPC"
   }
 
   ingress {
@@ -69,6 +70,7 @@ resource "aws_security_group" "nat_instance_sg" {
     to_port     = 22
     protocol    = "tcp"
     security_groups = [ aws_security_group.eice_sg.id ]
+    description = "Allow SSH access from EC2 Instance Connect Endpoint"
   }
 
   egress {
@@ -216,7 +218,7 @@ resource "aws_security_group" "eice_sg" {
   }
 
   tags = {
-    Name = "ec2-instance-connect-endpoint-sg"
+    Name = "${var.tag_prefix}-ec2-instance-connect-endpoint-sg"
   }
 }
 
@@ -228,7 +230,7 @@ resource "aws_ec2_instance_connect_endpoint" "eice" {
   preserve_client_ip = true
   
   tags = {
-    Name = "ec2-instance-connect-endpoint"
+    Name = "${var.tag_prefix}-ec2-instance-connect-endpoint"
   }
 }
 
