@@ -10,3 +10,6 @@
 .terraform.lock*
 .terraform
 terraform.tfstate*
+
+# mac
+.DS_Store
