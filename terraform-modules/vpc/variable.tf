@@ -34,18 +34,13 @@ variable "nat_instance_count" {
 }
 
 variable "nat_instance_ami" {
-  description = "NAT 인스턴스 AMI ID"
+  description = "NAT 인스턴스 AMI ID (생략시 최신 Amazon Linux 2023 AMI 사용)"
   type        = string
   default     = ""
 }
 
 variable "eip_allocation_ids" {
-  description = "EIP ID 목록"
+  description = "EIP ID 목록 (비어있거나 NAT 인스턴스 수와 같아야 함)"
   type        = list(string)
   default     = []
-
-  validation {
-    condition     = length(var.eip_allocation_ids) == 0 || length(var.eip_allocation_ids) == var.nat_instance_count
-    error_message = "EIP ID 는 비어있거나 NAT 인스턴스 수와 같아야 합니다."
-  }
 }

@@ -25,7 +25,7 @@ resource "aws_security_group_rule" "bastion_vpc_ingress" {
 
 # EICE에서의 트래픽 허용 규칙
 resource "aws_security_group_rule" "bastion_eice_ingress" {
-  count = var.eice_sg_id != "" ? 1 : 0
+  count = var.enable_eice_ingress ? 1 : 0
 
   security_group_id        = aws_security_group.bastion_sg.id
   type                     = "ingress"

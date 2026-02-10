@@ -156,6 +156,12 @@ resource "aws_eip_association" "nat_instance_eip_association" {
 
 # 프라이빗 서브넷 개수와 NAT 인스턴스 개수에 따른 배치 로직
 locals {
+  # EIP 검증: 비어있거나 NAT 인스턴스 수와 같아야 함
+  validate_eip_count = (
+    length(var.eip_allocation_ids) == 0 ||
+    length(var.eip_allocation_ids) == var.nat_instance_count
+  ) ? true : tobool("eip_allocation_ids는 비어있거나 nat_instance_count(${var.nat_instance_count})와 같아야 합니다. 현재: ${length(var.eip_allocation_ids)}개")
+
   nat_distribution = [
     for idx in range(length(data.aws_availability_zones.available.names)) :
     (idx % var.nat_instance_count) + 1

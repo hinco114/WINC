@@ -14,7 +14,6 @@ module "vpc" {
   nat_instance_arch = "arm64"
   nat_instance_type = "t4g.nano"
   eip_allocation_ids = [aws_eip.nat_instance_eip.id]
-  nat_instance_ami = data.aws_ami.amazon_linux_2023.id
 }
 
 resource "aws_key_pair" "default_key_pair" {
@@ -31,6 +30,7 @@ module "bastion" {
   public_subnet_id = module.vpc.public_subnets[0]
   bastion_ami = data.aws_ami.amazon_linux_2023.id
   bastion_instance_type = "t3.micro"
+  enable_eice_ingress = true
   eice_sg_id = module.vpc.eice_sg_id
   key_pair_name = aws_key_pair.default_key_pair.key_name
 }

@@ -27,6 +27,12 @@ variable "eice_sg_id" {
   default = ""
 }
 
+variable "enable_eice_ingress" {
+  type        = bool
+  default     = false
+  description = "Enable ingress rule from EC2 Instance Connect Endpoint"
+}
+
 variable "key_pair_name" {
   type = string
 }
