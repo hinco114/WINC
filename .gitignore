@@ -13,3 +13,6 @@ terraform.tfstate*
 
 # mac
 .DS_Store
+
+# my soft link files
+links
